@@ -49,10 +49,10 @@ final class DatasetInput {
         if (!Files.isDirectory(directory)) {
             throw new IOException("dataset is not a directory: " + directory);
         }
-        Path natUpdates = directory.resolve("nat_updates");
-        if (Files.exists(natUpdates)) {
-            throw new IOException("standalone APKeep does not support nat_updates: " + natUpdates);
-        }
+//        Path natUpdates = directory.resolve("nat_updates");
+//        if (Files.exists(natUpdates)) {
+//            throw new IOException("standalone APKeep does not support nat_updates: " + natUpdates);
+//        }
         List<String> topology = requiredLines(directory.resolve("topo.txt"));
         List<String> updates = requiredLines(directory.resolve("updates"));
         ParameterSettings parameters = ParameterSettings.load(directory);
