@@ -12,7 +12,7 @@ java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/inet/exper
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf1755/experiment-inputs/burst-u100000-q10000-profile-full --verify reachability
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf3257/experiment-inputs/burst-u100000-q10000-profile-full --verify reachability
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf6461/experiment-inputs/burst-u100000-q10000-profile-full --verify reachability
-java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf6461/experiment-inputs/burst-u3000-q10000-profile-full --verify reachability
+java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/stanford/experiment-inputs/burst-u3000-q10000-profile-full --verify reachability
 
 
 

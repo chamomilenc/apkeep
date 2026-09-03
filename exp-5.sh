@@ -12,7 +12,7 @@ java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/inet/exper
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf1755/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf3257/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
 java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf6461/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
-java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/rf6461/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
+java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/stanford/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
 
 java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/B4-2013/experiment-inputs/incremental-u10000-profile-forwarding-only
 java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/B4-2018/experiment-inputs/incremental-u10000-profile-forwarding-only
@@ -27,7 +27,7 @@ java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/inet/experi
 java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/rf1755/experiment-inputs/incremental-u10000-profile-forwarding-only
 java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/rf3257/experiment-inputs/incremental-u10000-profile-forwarding-only
 java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/rf6461/experiment-inputs/incremental-u10000-profile-forwarding-only
-java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/rf6461/experiment-inputs/incremental-u10000-profile-forwarding-only
+java -Xmx128g -jar target/apkeep-1.0.0.jar -incr /root/mint/networks/stanford/experiment-inputs/incremental-u10000-profile-forwarding-only
 
 
 #java -Xmx128g -jar target/apkeep-1.0.0.jar -burst /root/mint/networks/B4-2013/experiment-inputs/incremental-u10000-profile-forwarding-only --verify invariants
