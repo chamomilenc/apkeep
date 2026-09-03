@@ -9,6 +9,14 @@
       <plugins>
           <plugin>
               <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <version>3.11.0</version>
+              <configuration>
+                  <release>8</release>
+              </configuration>
+          </plugin>
+          <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-shade-plugin</artifactId>
               <version>3.2.4</version>
               <executions>
@@ -37,7 +45,7 @@
   <dependencies>
   		<dependency>
 		    <groupId>org.bitbucket.vahidi</groupId>
-		    <artifactId>JDD</artifactId>
+		    <artifactId>jdd</artifactId>
 		    <version>108</version>
 		</dependency>
 		<dependency>
