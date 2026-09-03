@@ -2,6 +2,8 @@ package apkeep.main;
 
 import java.io.IOException;
 
+import apkeep.runner.StandaloneRunner;
+
 import org.jline.builtins.Completers;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
@@ -12,6 +14,11 @@ import org.jline.terminal.TerminalBuilder;
 public class Main {
 
 	public static void main(String[] args) throws IOException {
+		if (args.length > 0) {
+			int status = StandaloneRunner.run(args);
+			if (status != 0) System.exit(status);
+			return;
+		}
 		 Terminal terminal = TerminalBuilder.terminal();
 	     Completers.FileNameCompleter completer = new Completers.FileNameCompleter();
 	     LineReader reader = LineReaderBuilder.builder()

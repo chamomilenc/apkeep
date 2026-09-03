@@ -1,0 +1,56 @@
+package apkeep.runner;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class StandaloneRunnerTest {
+    @TempDir
+    Path temporaryDirectory;
+
+    @Test
+    void burstReachabilityWritesThreeSuccessfulTrials() throws Exception {
+        Path dataset = createDataset();
+        Path output = temporaryDirectory.resolve("results");
+        DatasetInput input = DatasetInput.load(dataset, true);
+        assertEquals(0, StandaloneRunner.execute(input, RunMode.BURST_REACHABILITY, output));
+
+        List<String> trials = Files.readAllLines(output.resolve("trials.csv"), StandardCharsets.UTF_8);
+        assertEquals(4, trials.size());
+        assertTrue(trials.get(1).contains("BURST_REACHABILITY"));
+        assertTrue(trials.get(1).contains(",SUCCESS,"));
+        assertTrue(Files.isRegularFile(output.resolve("summary.csv")));
+        assertTrue(Files.isRegularFile(output.resolve("run.properties")));
+    }
+
+    @Test
+    void incrementalWritesPerUpdateSamples() throws Exception {
+        Path dataset = createDataset();
+        Path output = temporaryDirectory.resolve("incremental-results");
+        DatasetInput input = DatasetInput.load(dataset, false);
+        assertEquals(0, StandaloneRunner.execute(input, RunMode.INCREMENTAL_INVARIANTS, output));
+        assertTrue(Files.size(output.resolve("incremental-samples.csv.gz")) > 0);
+    }
+
+    private Path createDataset() throws Exception {
+        Path dataset = Files.createDirectory(temporaryDirectory.resolve("tiny"));
+        Files.write(dataset.resolve("parameters.json"), (
+                "{\"BDD_TABLE_SIZE\":100000,\"GC_INTERVAL\":1000,"
+                + "\"PRINT_RESULT_INTERVAL\":1000,\"WRITE_RESULT_INTERVAL\":1}"
+                ).getBytes(StandardCharsets.UTF_8));
+        Files.write(dataset.resolve("topo.txt"), "r1 p12 r2 p21\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(dataset.resolve("updates"), (
+                "+ fwd r1 167772160 24 p12 24\n"
+                + "+ fwd r2 167772160 24 self 24\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(dataset.resolve("reachability.txt"),
+                "1 167772160 24 r1 r2 true\n".getBytes(StandardCharsets.UTF_8));
+        return dataset;
+    }
+}

@@ -29,11 +29,19 @@ public class APKeep {
 	public static Evaluator eva;
 
 	public static void init(String configPath) throws IOException {
+		if (net != null) {
+			net.close();
+			net = null;
+		}
 		workingPath = Paths.get(configPath).toRealPath().toString();
-		String paraFile = new String(Files.readAllBytes(Paths.get(workingPath, "parameters.json")));
-		JSONObject paras = JSONObject.parseObject(paraFile);
-		
-		parseParameters(paras);
+		Parameters.resetDefaults();
+		name = Paths.get(workingPath).getFileName().toString();
+		java.nio.file.Path parameterPath = Paths.get(workingPath, "parameters.json");
+		if (Files.isRegularFile(parameterPath)) {
+			String paraFile = new String(Files.readAllBytes(parameterPath), java.nio.charset.StandardCharsets.UTF_8);
+			JSONObject paras = JSONObject.parseObject(paraFile);
+			parseParameters(paras);
+		}
 		outputPath = Paths.get(currentPath, "results", name+"_result.txt").toString();
 		
 		net = new Network(name);
@@ -48,9 +56,13 @@ public class APKeep {
 		net.initializeNetwork(topo, devices, device_acls, vlan_ports, device_nats);
 	}
 
-	private static void parseParameters(JSONObject paras) {
+	public static void parseParameters(JSONObject paras) {
+		if (paras == null) return;
 		if(paras.containsKey("NAME")) 
-			name = paras.getString("NAME");
+			if (paras.getString("NAME") != null && !paras.getString("NAME").trim().isEmpty())
+				name = paras.getString("NAME").trim();
+		if(paras.containsKey("MergeAP"))
+			Parameters.MergeAP = paras.getBooleanValue("MergeAP");
 		if(paras.containsKey("BDD_TABLE_SIZE")) 
 			Parameters.BDD_TABLE_SIZE = paras.getIntValue("BDD_TABLE_SIZE");
 		if(paras.containsKey("GC_INTERVAL")) 
