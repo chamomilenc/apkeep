@@ -10,8 +10,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import apkeep.checker.Checker;
+import apkeep.checker.FullInvariantReport;
+import apkeep.checker.VerificationResult;
 import apkeep.checker.ForwardingGraph;
 import apkeep.elements.ACLElement;
 import apkeep.elements.Element;
@@ -41,6 +44,7 @@ public class Network {
 	 */
 	protected HashSet<String> acl_node_names;
 	private HashSet<String> nat_element_names;
+	private Map<String, String> acl_element_devices;
 	
 	/*
 	 * The BDD data structure for encoding packet sets with Boolean formula
@@ -54,6 +58,39 @@ public class Network {
 	protected APKeeper acl_apk; // the APKeeper for ACL devices
 
 	private Checker checker;
+	private boolean standaloneInsertPhaseFinished;
+	private boolean mixedExperiment;
+	private final Set<String> mixedRules = new HashSet<String>();
+	private final Map<String, String> mixedAclApplications = new HashMap<String, String>();
+
+	/** Experiment 7: explicit logical edges, selected FIB elements, shared ACL tables. */
+	public void initializeMixedNetwork(List<String> links, Set<String> forwardingDevices,
+			Map<String, Set<String>> acls, Map<String, Map<String, Set<String>>> vlans,
+			Map<String, String> applications) {
+		mixedExperiment = true;
+		mixedAclApplications.putAll(applications);
+		acl_node_names.addAll(applications.keySet());
+		addFWDElement(new ArrayList<String>(forwardingDevices));
+		for (String device : forwardingDevices) ((ForwardElement) elements.get(device)).enableMixedPriorityOrder();
+		addACLs(acls);
+		for (String link : links) {
+			checkpoint();
+			String[] p = link.split("\\s+");
+			addDirectedEdge(p[0], p[1], p[2], p[3]);
+		}
+		if (vlans != null) for (String device : forwardingDevices) {
+			if (vlans.containsKey(device)) ((ForwardElement) elements.get(device)).addVlanPorts(vlans.get(device));
+		}
+		initializeAPK();
+	}
+
+	public boolean isMixedExperiment() { return mixedExperiment; }
+
+	/** Counters are checking origins, not individual ECs. */
+	public FullInvariantReport verifyMixedInvariants(AppliedUpdate update) {
+		if (!mixedExperiment) throw new IllegalStateException("not an experiment-7 model");
+		return checker.verifyMixedInvariants(update);
+	}
 	
 	public Network(String network_name) {
 		name = network_name;
@@ -68,12 +105,14 @@ public class Network {
 		
 		acl_node_names = new HashSet<>();
 		nat_element_names = new HashSet<>();
+		acl_element_devices = new HashMap<String, String>();
 		
 		new HashMap<>();
 
 		Element.setBDDWrapper(bdd_engine);
 		
 		checker = new Checker(this);
+		standaloneInsertPhaseFinished = false;
 	}
 	
 	public void initializeNetwork(ArrayList<String> l1_links, 
@@ -123,6 +162,7 @@ public class Network {
 		}
 	}
 	public boolean isACLNode(String name) {
+		if (mixedExperiment) return mixedAclApplications.containsKey(name);
 		return name.endsWith("_in") || name.endsWith("_out");
 	}
 	private void addDirectedEdge(String d1, String p1, String d2, String p2) {
@@ -190,6 +230,7 @@ public class Network {
 				String element = device+"_"+aclname;
 				Element e = new ACLElement(element);
 				elements.put(element, e);
+				acl_element_devices.put(element, device);
 			}
 		}
 	}
@@ -205,27 +246,78 @@ public class Network {
 	public Element getElement(String deviceName) {
 		return elements.get(deviceName);
 	}
+
+	public Element resolveTopologyElement(String nodeName) {
+		return isACLNode(nodeName) ? getACLElement(nodeName) : getElement(nodeName);
+	}
+
+	public boolean isDivisionActivated() {
+		return division_activated;
+	}
+
+	public Set<String> getForwardingElementNames() {
+		Set<String> names = new HashSet<String>();
+		for (Map.Entry<String, Element> entry : elements.entrySet()) {
+			if (entry.getValue() instanceof ForwardElement) names.add(entry.getKey());
+		}
+		return names;
+	}
+
+	public Set<Integer> getForwardingAtomicPredicates() {
+		return fwd_apk.getAPs();
+	}
+
+	public Set<Integer> getForwardingAtomicPredicates(int predicate) {
+		return fwd_apk.getAPExp(predicate);
+	}
+
+	public Set<String> getAclApplicationNodes(String aclElementName) {
+		Set<String> applications = new HashSet<String>();
+		for (String node : acl_node_names) {
+			Element element = getACLElement(node);
+			if (element != null && element.getName().equals(aclElementName)) applications.add(node);
+		}
+		return applications;
+	}
+
+	public int encodeDestinationPrefix(long network, int prefixLength) {
+		return fwd_apk.encodePrefixBDD(network, prefixLength);
+	}
 	
 	public Element getACLElement(String acl_node_name) {
-		String[] tokens = acl_node_name.split("_");
-		String acl_element_name = null;
-		if (name.equals("stanford")) {
-			acl_element_name = tokens[0]+"_"+tokens[1]+"_"+tokens[2];
+		if (mixedExperiment && mixedAclApplications.containsKey(acl_node_name))
+			return elements.get(mixedAclApplications.get(acl_node_name));
+		Element exact = elements.get(acl_node_name);
+		if (exact instanceof ACLElement) return exact;
+		String best = null;
+		for (String elementName : acl_element_devices.keySet()) {
+			if (acl_node_name.startsWith(elementName + "_")
+					&& (best == null || elementName.length() > best.length())) {
+				best = elementName;
+			}
 		}
-		else {
-			acl_element_name = tokens[0]+"_"+tokens[1];
-		}
-		return elements.get(acl_element_name);
+		return best == null ? null : elements.get(best);
 	}
 	
 	public String getForwardElement(String device) {
 		if(elements.get(device) instanceof ACLElement) {
 			return getForwardElementFromACL(device);
 		}
+		if (isACLNode(device)) {
+			Element acl = getACLElement(device);
+			if (acl != null) return getForwardElementFromACL(acl.getName());
+		}
 		return device;
 	}
 	
 	public String getForwardElementFromACL(String acl_name) {
+		String mapped = acl_element_devices.get(acl_name);
+		if (mapped != null) return mapped;
+		Element element = getACLElement(acl_name);
+		if (element != null) {
+			mapped = acl_element_devices.get(element.getName());
+			if (mapped != null) return mapped;
+		}
 		String[] tokens = acl_name.split("_");
 		if (name.equals("stanford")) {
 			return tokens[0]+"_"+tokens[1];
@@ -313,6 +405,113 @@ public class Network {
 		eva.endUpdate();
 		eva.printUpdateResults(getAPNum());
 	}
+
+	/** Result of the model-update phase used by the non-interactive runner. */
+	public static final class AppliedUpdate {
+		private final String elementName;
+		private final Set<Integer> movedAtomicPredicates;
+		private final long identifyChangesNanos;
+		private final boolean identifyChangesInvoked;
+
+		private AppliedUpdate(String elementName, Set<Integer> movedAtomicPredicates,
+				long identifyChangesNanos, boolean identifyChangesInvoked) {
+			this.elementName = elementName;
+			this.movedAtomicPredicates = movedAtomicPredicates;
+			this.identifyChangesNanos = identifyChangesNanos;
+			this.identifyChangesInvoked = identifyChangesInvoked;
+		}
+
+		public String getElementName() {
+			return elementName;
+		}
+
+		public Set<Integer> getMovedAtomicPredicates() {
+			return movedAtomicPredicates;
+		}
+
+		public long getIdentifyChangesNanos() {
+			return identifyChangesNanos;
+		}
+
+		public boolean wasIdentifyChangesInvoked() {
+			return identifyChangesInvoked;
+		}
+	}
+
+	/** Apply one in-memory update without verification or AP soft merging. */
+	public AppliedUpdate applyUpdateModel(String rule) throws Exception {
+		checkpoint();
+		Logger.logDebugInfo(rule);
+		String[] tokens = rule.trim().split("\\s+");
+		if (tokens.length < 3) throw new IllegalArgumentException("invalid update: " + rule);
+		String op = tokens[0];
+		String type = tokens[1];
+		String device = tokens[2];
+		if (!"+".equals(op) && !"-".equals(op)) {
+			throw new IllegalArgumentException("unsupported update operation: " + rule);
+		}
+		String ruleIdentity = rule.substring(2);
+		if (mixedExperiment && ("+".equals(op) == mixedRules.contains(ruleIdentity))) {
+			return new AppliedUpdate(device, new HashSet<Integer>(), 0, false);
+		}
+		if ("-".equals(op) && !standaloneInsertPhaseFinished) {
+			standaloneInsertPhaseFinished = true;
+			hardMergeAPBatch();
+		}
+		String elementName = "nat".equals(type) ? device + "_" + tokens[3] : device;
+		Element element = elements.get(elementName);
+		if (element == null) throw new ElementNotFoundException(elementName);
+		Rule encoded = element.encodeOneRule(rule);
+		List<ChangeItem> changes = "+".equals(op)
+				? element.insertOneRule(encoded) : element.removeOneRule(encoded);
+		long identifyChangesNanos = element.getLastIdentifyChangesNanos();
+		boolean identifyChangesInvoked = element.wasLastIdentifyChangesInvoked();
+		Set<Integer> moved = element.updatePortPredicateMap(changes);
+		if (mixedExperiment) {
+			if ("+".equals(op)) mixedRules.add(ruleIdentity); else mixedRules.remove(ruleIdentity);
+		}
+		return new AppliedUpdate(elementName, moved == null
+				? new HashSet<Integer>() : new HashSet<Integer>(moved),
+				identifyChangesNanos, identifyChangesInvoked);
+	}
+
+	public VerificationResult verifyUpdate(AppliedUpdate update) {
+		checkpoint();
+		if (update == null || update.movedAtomicPredicates.isEmpty()) {
+			return VerificationResult.none();
+		}
+		return checker.verifyUpdate(update.elementName, update.movedAtomicPredicates);
+	}
+
+	public void finishStandaloneUpdate() throws Exception {
+		checkpoint();
+		softMergeAPBatch();
+	}
+
+	public void finalizeStandaloneModel() throws Exception {
+		checkpoint();
+		hardMergeAPBatch();
+	}
+
+	public FullInvariantReport verifyAllInvariants() {
+		return checker.verifyAllForwardingAtomicPredicates();
+	}
+
+	public Set<String> reachableDevices(long network, int prefixLength, String source) {
+		return checker.reachableDevices(network, prefixLength, source);
+	}
+
+	public void clearVerificationState() {
+		checker.clearTransientState();
+	}
+
+	public void close() {
+		checker.clearTransientState();
+		if (bdd_engine != null) {
+			bdd_engine.CleanUp();
+			bdd_engine = null;
+		}
+	}
 	
 	private Set<Integer> updateRule(Evaluator eva, String op, String type, String device, String rule) throws Exception{
 		String element_name = null;
@@ -373,9 +572,16 @@ public class Network {
 	}
 	
 	private void hardMergeAPBatch() throws Exception {
+		checkpoint();
 		fwd_apk.tryMergeAPBatch();
 		if (acl_apk != null) {
 			acl_apk.tryMergeAPBatch();
+		}
+	}
+
+	private static void checkpoint() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("APKeep model operation cancelled");
 		}
 	}
 	

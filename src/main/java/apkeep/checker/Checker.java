@@ -1,11 +1,17 @@
 package apkeep.checker;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import apkeep.core.Network;
 import apkeep.elements.ACLElement;
@@ -256,5 +262,341 @@ public class Checker {
 		Set<String> ports = new HashSet<>();
 		ports.add(port);
 		return ports;
+	}
+
+	/**
+	 * Verify the behavior changed by one update.  Unlike the historical entry
+	 * point, this checks both loops and forwarding-device default blackholes and
+	 * returns immediately after the first violation.
+	 */
+	public VerificationResult verifyUpdate(String elementName, Set<Integer> movedAps) {
+		checkpoint();
+		Element changed = net.getElement(elementName);
+		if (changed == null || movedAps == null || movedAps.isEmpty()) {
+			return VerificationResult.none();
+		}
+		List<Integer> moved = sortedIntegers(movedAps);
+		if (changed instanceof ACLElement) {
+			List<String> applications = new ArrayList<String>(net.getAclApplicationNodes(elementName));
+			Collections.sort(applications);
+			for (String root : applications) {
+				checkpoint();
+				for (int aclAp : moved) {
+					checkpoint();
+					for (int fwdAp : sortedIntegers(net.getForwardingAtomicPredicates())) {
+						if (!overlaps(fwdAp, aclAp)) continue;
+						VerificationResult result = verifyOne(root, fwdAp, aclAp);
+						if (result.isViolation()) return result;
+					}
+				}
+			}
+			return VerificationResult.none();
+		}
+		for (int fwdAp : moved) {
+			checkpoint();
+			VerificationResult result = verifyOne(elementName, fwdAp, BDDACLWrapper.BDDTrue);
+			if (result.isViolation()) return result;
+		}
+		return VerificationResult.none();
+	}
+
+	/** Verify every final forwarding AP from every real forwarding ingress. */
+	public FullInvariantReport verifyAllForwardingAtomicPredicates() {
+		long checked = 0;
+		long loopCount = 0;
+		long blackholeCount = 0;
+		List<String> devices = new ArrayList<String>(net.getForwardingElementNames());
+		Collections.sort(devices);
+		List<Integer> aps = sortedIntegers(net.getForwardingAtomicPredicates());
+		for (String device : devices) {
+			checkpoint();
+			for (int ap : aps) {
+				checkpoint();
+				checked++;
+				VerificationResult result = verifyOne(device, ap, BDDACLWrapper.BDDTrue);
+				if (result.getType() == ViolationType.LOOP) loopCount++;
+				else if (result.getType() == ViolationType.BLACKHOLE) blackholeCount++;
+			}
+		}
+		return new FullInvariantReport(checked, loopCount, blackholeCount);
+	}
+
+	/** Full checks exhaust branches; affected checks retain first-violation semantics. */
+	public FullInvariantReport verifyMixedInvariants(Network.AppliedUpdate update) {
+		boolean full = update == null;
+		if (!full && update.getMovedAtomicPredicates().isEmpty()) return new FullInvariantReport(0, 0, 0);
+		boolean acl = !full && net.getElement(update.getElementName()) instanceof ACLElement;
+		Set<String> roots = full ? net.getForwardingElementNames() : acl
+				? net.getAclApplicationNodes(update.getElementName()) : Collections.singleton(update.getElementName());
+		List<String> ordered = new ArrayList<String>(roots);
+		Collections.sort(ordered);
+		long loops = 0, holes = 0, checked = 0;
+		List<Integer> fwd = sortedIntegers(full || acl ? net.getForwardingAtomicPredicates()
+				: update.getMovedAtomicPredicates());
+		List<Integer> filters = acl ? sortedIntegers(update.getMovedAtomicPredicates())
+				: Collections.singletonList(BDDACLWrapper.BDDTrue);
+		for (String root : ordered) {
+			checkpoint();
+			checked++;
+			int violations = 0;
+			for (int ap : fwd) for (int filter : filters) {
+				if (full) violations |= exploreAll(new State(root, null, ap, filter));
+				else {
+					VerificationResult result = verifyOne(root, ap, filter);
+					if (result.isViolation()) return new FullInvariantReport(checked,
+							result.getType() == ViolationType.LOOP ? 1 : 0,
+							result.getType() == ViolationType.BLACKHOLE ? 1 : 0);
+				}
+			}
+			if ((violations & 1) != 0) loops++;
+			if ((violations & 2) != 0) holes++;
+		}
+		return new FullInvariantReport(checked, loops, holes);
+	}
+
+	/** Iterative DFS exhausts branches even after finding either violation kind. */
+	private int exploreAll(State root) {
+		Map<State, VisitState> colors = new HashMap<State, VisitState>();
+		Deque<ScanFrame> stack = new ArrayDeque<ScanFrame>();
+		stack.push(new ScanFrame(root, false));
+		int result = 0;
+		while (!stack.isEmpty()) {
+			checkpoint();
+			ScanFrame frame = stack.pop();
+			State state = frame.state;
+			if (frame.exit) { colors.put(state, VisitState.DONE); continue; }
+			if (!stateHasPackets(state)) continue;
+			VisitState color = colors.get(state);
+			if (color == VisitState.VISITING) { result |= 1; continue; }
+			if (color == VisitState.DONE) continue;
+			colors.put(state, VisitState.VISITING);
+			stack.push(new ScanFrame(state, true));
+			Expansion expansion = expand(state, true);
+			if (expansion.blackhole) result |= 2;
+			for (State next : expansion.next) stack.push(new ScanFrame(next, false));
+		}
+		return result;
+	}
+
+	private static final class ScanFrame {
+		final State state;
+		final boolean exit;
+		ScanFrame(State state, boolean exit) { this.state = state; this.exit = exit; }
+	}
+
+	/** Return all forwarding devices reached by any packet in the prefix. */
+	public Set<String> reachableDevices(long network, int prefixLength, String source) {
+		Element sourceElement = net.getElement(source);
+		if (!(sourceElement instanceof ForwardElement)) {
+			throw new IllegalArgumentException("unknown forwarding source device: " + source);
+		}
+		int prefix = net.encodeDestinationPrefix(network, prefixLength);
+		List<Integer> aps = sortedIntegers(net.getForwardingAtomicPredicates(prefix));
+		Set<State> visited = new HashSet<State>();
+		Deque<State> pending = new ArrayDeque<State>();
+		for (int ap : aps) pending.addLast(new State(source, null, ap, BDDACLWrapper.BDDTrue));
+		Set<String> reachable = new LinkedHashSet<String>();
+		while (!pending.isEmpty()) {
+			checkpoint();
+			State state = pending.removeFirst();
+			if (!visited.add(state) || !stateHasPackets(state)) continue;
+			Element direct = net.getElement(state.node);
+			if (direct instanceof ForwardElement) {
+				reachable.add(state.node);
+			} else if (direct == null && !net.isACLNode(state.node)) {
+				// Mixed models only materialize ForwardElements for FIB update devices.
+				// Topology-only next hops are still valid Experiment 8 destinations.
+				reachable.add(state.node);
+				continue;
+			}
+			Expansion expansion = expand(state, false);
+			for (State next : expansion.next) pending.addLast(next);
+		}
+		return reachable;
+	}
+
+	public void clearTransientState() {
+		// New verification uses operation-local state only.  The method makes the
+		// lifecycle explicit for memory measurements and future checker caches.
+	}
+
+	private VerificationResult verifyOne(String root, int fwdAp, int aclAp) {
+		Map<State, VisitState> colors = new HashMap<State, VisitState>();
+		List<String> path = new ArrayList<String>();
+		return dfs(new State(root, null, fwdAp, aclAp), colors, path);
+	}
+
+	private VerificationResult dfs(State state, Map<State, VisitState> colors, List<String> path) {
+		checkpoint();
+		if (!stateHasPackets(state)) return VerificationResult.none();
+		VisitState color = colors.get(state);
+		if (color == VisitState.VISITING) {
+			List<String> loopPath = new ArrayList<String>(path);
+			loopPath.add(state.label());
+			return VerificationResult.violation(ViolationType.LOOP, state.fwdAp, loopPath);
+		}
+		if (color == VisitState.DONE) return VerificationResult.none();
+		colors.put(state, VisitState.VISITING);
+		path.add(state.label());
+		Expansion expansion = expand(state, true);
+		if (expansion.blackhole) {
+			VerificationResult result = VerificationResult.violation(
+					ViolationType.BLACKHOLE, state.fwdAp, path);
+			path.remove(path.size() - 1);
+			colors.put(state, VisitState.DONE);
+			return result;
+		}
+		for (State next : expansion.next) {
+			checkpoint();
+			VerificationResult result = dfs(next, colors, path);
+			if (result.isViolation()) {
+				path.remove(path.size() - 1);
+				return result;
+			}
+		}
+		path.remove(path.size() - 1);
+		colors.put(state, VisitState.DONE);
+		return VerificationResult.none();
+	}
+
+	private Expansion expand(State state, boolean detectBlackhole) {
+		Element element = net.resolveTopologyElement(state.node);
+		if (element == null) return Expansion.empty();
+		if (element instanceof ForwardElement && detectBlackhole) {
+			Set<Integer> defaults = element.getPortAPs("default");
+			if (defaults != null && defaults.contains(state.fwdAp)) {
+				return Expansion.blackhole();
+			}
+		}
+
+		List<State> next = new ArrayList<State>();
+		List<String> ports = new ArrayList<String>(element.getPorts());
+		Collections.sort(ports);
+		for (String port : ports) {
+			checkpoint();
+			if ("default".equals(port)) continue;
+			if (!net.isMixedExperiment() && state.inputPort != null && state.inputPort.equals(port)) continue;
+			if (element instanceof ACLElement && "deny".equals(port)) continue;
+			if ("self".equalsIgnoreCase(port)) continue;
+
+			Set<Integer> outputFwd = Collections.singleton(state.fwdAp);
+			Set<Integer> outputAcl = Collections.singleton(state.aclAp);
+			if (element instanceof ACLElement) {
+				outputAcl = element.forwardAPs(port, outputAcl);
+			} else {
+				outputFwd = element.forwardAPs(port, outputFwd);
+			}
+			if (outputFwd.isEmpty() || outputAcl.isEmpty()) continue;
+
+			List<String> physicalPorts = new ArrayList<String>(getPhysicalPorts(element, port));
+			Collections.sort(physicalPorts);
+			for (String physicalPort : physicalPorts) {
+				checkpoint();
+				if ("self".equalsIgnoreCase(physicalPort)) continue;
+				PositionTuple output = new PositionTuple(state.node, physicalPort);
+				Set<PositionTuple> connected = net.getConnectedPorts(output);
+				if (connected == null || connected.isEmpty()) continue; // external/terminal
+				List<PositionTuple> targets = new ArrayList<PositionTuple>(connected);
+				Collections.sort(targets, POSITION_ORDER);
+				for (PositionTuple target : targets) {
+					checkpoint();
+					for (int fwd : sortedIntegers(outputFwd)) {
+						for (int acl : sortedIntegers(outputAcl)) {
+							if (overlaps(fwd, acl)) {
+								next.add(new State(target.getDeviceName(), target.getPortName(), fwd, acl));
+							}
+						}
+					}
+				}
+			}
+		}
+		return new Expansion(false, next);
+	}
+
+	private boolean stateHasPackets(State state) {
+		return state.fwdAp != BDDACLWrapper.BDDFalse
+				&& state.aclAp != BDDACLWrapper.BDDFalse
+				&& overlaps(state.fwdAp, state.aclAp);
+	}
+
+	private boolean overlaps(int fwdAp, int aclAp) {
+		if (!net.isDivisionActivated() || aclAp == BDDACLWrapper.BDDTrue) return true;
+		return Element.hasOverlap(Collections.singleton(fwdAp), Collections.singleton(aclAp));
+	}
+
+	private static List<Integer> sortedIntegers(Set<Integer> values) {
+		List<Integer> result = new ArrayList<Integer>(values);
+		Collections.sort(result);
+		return result;
+	}
+
+	private static void checkpoint() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("APKeep verification cancelled");
+		}
+	}
+
+	private enum VisitState { VISITING, DONE }
+
+	private static final Comparator<PositionTuple> POSITION_ORDER = new Comparator<PositionTuple>() {
+		@Override
+		public int compare(PositionTuple left, PositionTuple right) {
+			int device = left.getDeviceName().compareTo(right.getDeviceName());
+			return device != 0 ? device : left.getPortName().compareTo(right.getPortName());
+		}
+	};
+
+	private static final class State {
+		final String node;
+		final String inputPort;
+		final int fwdAp;
+		final int aclAp;
+
+		State(String node, String inputPort, int fwdAp, int aclAp) {
+			this.node = node;
+			this.inputPort = inputPort;
+			this.fwdAp = fwdAp;
+			this.aclAp = aclAp;
+		}
+
+		String label() {
+			return node + (inputPort == null ? "" : "," + inputPort);
+		}
+
+		@Override
+		public boolean equals(Object object) {
+			if (!(object instanceof State)) return false;
+			State other = (State) object;
+			return fwdAp == other.fwdAp && aclAp == other.aclAp
+					&& node.equals(other.node)
+					&& (inputPort == null ? other.inputPort == null : inputPort.equals(other.inputPort));
+		}
+
+		@Override
+		public int hashCode() {
+			int result = node.hashCode();
+			result = 31 * result + (inputPort == null ? 0 : inputPort.hashCode());
+			result = 31 * result + fwdAp;
+			result = 31 * result + aclAp;
+			return result;
+		}
+	}
+
+	private static final class Expansion {
+		final boolean blackhole;
+		final List<State> next;
+
+		Expansion(boolean blackhole, List<State> next) {
+			this.blackhole = blackhole;
+			this.next = next;
+		}
+
+		static Expansion empty() {
+			return new Expansion(false, Collections.<State>emptyList());
+		}
+
+		static Expansion blackhole() {
+			return new Expansion(true, Collections.<State>emptyList());
+		}
 	}
 }

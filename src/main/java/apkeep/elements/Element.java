@@ -25,6 +25,8 @@ public abstract class Element {
 	
 	protected static BDDACLWrapper bdd;
 	protected APKeeper apk;
+	private long lastIdentifyChangesNanos;
+	private boolean lastIdentifyChangesInvoked;
 	
 	protected Map<String, Set<Integer>> port_aps_raw;
 	
@@ -52,6 +54,63 @@ public abstract class Element {
 	
 	public String getName() {
 		return name;
+	}
+
+	protected final void resetIdentifyChangesTiming() {
+		lastIdentifyChangesNanos = 0L;
+		lastIdentifyChangesInvoked = false;
+	}
+
+	public final long getLastIdentifyChangesNanos() {
+		return lastIdentifyChangesNanos;
+	}
+
+	public final boolean wasLastIdentifyChangesInvoked() {
+		return lastIdentifyChangesInvoked;
+	}
+
+	protected final List<ChangeItem> timedIdentifyChangesInsert(
+			Rule rule, ArrayList<Rule> affectedRules) throws Exception {
+		long started = System.nanoTime();
+		lastIdentifyChangesInvoked = true;
+		try {
+			return identifyChangesInsert(rule, affectedRules);
+		} finally {
+			lastIdentifyChangesNanos += System.nanoTime() - started;
+		}
+	}
+
+	protected final List<ChangeItem> timedIdentifyChangesInsert(
+			Rule rule, LinkedList<Rule> affectedRules) throws Exception {
+		long started = System.nanoTime();
+		lastIdentifyChangesInvoked = true;
+		try {
+			return identifyChangesInsert(rule, affectedRules);
+		} finally {
+			lastIdentifyChangesNanos += System.nanoTime() - started;
+		}
+	}
+
+	protected final List<ChangeItem> timedIdentifyChangesRemove(
+			Rule rule, ArrayList<Rule> affectedRules) throws Exception {
+		long started = System.nanoTime();
+		lastIdentifyChangesInvoked = true;
+		try {
+			return identifyChangesRemove(rule, affectedRules);
+		} finally {
+			lastIdentifyChangesNanos += System.nanoTime() - started;
+		}
+	}
+
+	protected final List<ChangeItem> timedIdentifyChangesRemove(
+			Rule rule, LinkedList<Rule> affectedRules) throws Exception {
+		long started = System.nanoTime();
+		lastIdentifyChangesInvoked = true;
+		try {
+			return identifyChangesRemove(rule, affectedRules);
+		} finally {
+			lastIdentifyChangesNanos += System.nanoTime() - started;
+		}
 	}
 	
 	protected List<ChangeItem> identifyChangesInsert(Rule rule, ArrayList<Rule> affected_rules) throws Exception {

@@ -124,7 +124,8 @@ public class NATElement extends Element {
 
 	@Override
 	public List<ChangeItem> insertOneRule(Rule rule) throws Exception {
-		List<ChangeItem> change_set = identifyChangesInsert(rule, rewrite_rules);
+		resetIdentifyChangesTiming();
+		List<ChangeItem> change_set = timedIdentifyChangesInsert(rule, rewrite_rules);
 		rule_map.put(rule.getPort(), rule);
 		port_aps_raw.putIfAbsent(rule.getPort(), new HashSet<Integer>());
 		return change_set;
@@ -132,6 +133,7 @@ public class NATElement extends Element {
 
 	@Override
 	public List<ChangeItem> removeOneRule(Rule rule) throws Exception {
+		resetIdentifyChangesTiming();
 		int index = findRule(rule);
 		if(index == rewrite_rules.size()) {
 			Logger.logInfo("Rule not found " + rule.toString());
@@ -145,7 +147,7 @@ public class NATElement extends Element {
 			return new ArrayList<ChangeItem>();
 		}
 		
-		List<ChangeItem> change_set = identifyChangesRemove(rule_to_remove, rewrite_rules);
+		List<ChangeItem> change_set = timedIdentifyChangesRemove(rule_to_remove, rewrite_rules);
 		removeRule(index);
 		return change_set;
 	}

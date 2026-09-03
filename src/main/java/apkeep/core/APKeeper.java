@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import apkeep.elements.ACLElement;
 import apkeep.elements.Element;
@@ -24,8 +25,6 @@ import jdd.bdd.BDD;
  * Computes Atomic Predicates using BDDs.
  */
 public class APKeeper {
-	private final static boolean MergeAP = Parameters.MergeAP;
-	
 	public static BDDACLWrapper bddengine;
 	private Set<Integer> AP;
 	
@@ -98,6 +97,10 @@ public class APKeeper {
 	
 	public int getAPNum() {
 		return AP.size();
+	}
+
+	public Set<Integer> getAPs() {
+		return new HashSet<Integer>(AP);
 	}
 	
 	public Set<PositionTuple> getHoldPorts(int ap) throws Exception {
@@ -213,7 +216,7 @@ public class APKeeper {
 			
 			ap_ports.remove(origin);
 			
-			if (MergeAP) {
+			if (Parameters.MergeAP) {
 				ports_aps.get(ports).remove(origin);
 				ports_aps.get(ports).add(parta);
 				ports_aps.get(ports).add(partb);
@@ -240,7 +243,7 @@ public class APKeeper {
 		
 		ArrayList<String> ports = ap_ports.get(ap);
 
-		if (!MergeAP) {
+		if (!Parameters.MergeAP) {
 			ports.set(element_ids.get(pt2.getDeviceName()), pt2.getPortName());
 		}
 		else {
@@ -306,7 +309,7 @@ public class APKeeper {
 	}
 	
 	public int tryMergeAP(int ap) throws Exception {
-		if (!MergeAP) return ap;
+		if (!Parameters.MergeAP) return ap;
 		
 		ArrayList<String> ports = ap_ports.get(ap);
 		HashSet<Integer> aps = ports_aps.get(ports);
@@ -327,9 +330,11 @@ public class APKeeper {
 	}
 	
 	public void tryMergeAPBatch() throws Exception {
+		checkpoint();
 		if (ports_to_merge.isEmpty()) return;
 		
 		for (ArrayList<String> ports : new ArrayList<>(ports_to_merge)) {
+			checkpoint();
 			HashSet<Integer> aps = ports_aps.get(ports);
 			if(aps.size()<2) {
 				throw new MergeSelfException(aps.toArray()[0]);
@@ -358,6 +363,7 @@ public class APKeeper {
 		
 		ArrayList<String> ports = ap_ports.get(ap1);
 		for(String elementname : elements.keySet()){
+			checkpoint();
 			String port = ports.get(element_ids.get(elementname));
 			elements.get(elementname).updateAPSetMerge(port, merged_ap, ap1, ap2);
 		}
@@ -394,10 +400,12 @@ public class APKeeper {
 		ArrayList<String> ports = ap_ports.get(aps.toArray()[0]);
 		ap_ports.put(merged_ap, ports);
 		for(String elementname : elements.keySet()){
+			checkpoint();
 			String port = ports.get(element_ids.get(elementname));
 			elements.get(elementname).updateAPSetMergeBatch(port, merged_ap, aps);
 		}
 		for (int ap : aps) {
+			checkpoint();
 			bddengine.deref(ap);
 			ap_ports.remove(ap);
 		}
@@ -444,5 +452,11 @@ public class APKeeper {
 			}
 		}
 		return ip_prefixs;
+	}
+
+	private static void checkpoint() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("APKeep AP merge cancelled");
+		}
 	}
 }

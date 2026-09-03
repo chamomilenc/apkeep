@@ -20,6 +20,10 @@ public class ForwardElement extends Element {
 	
 	TrieTree trie;
 	Map<String, Set<String>> vlan_ports;
+	private boolean strictPriorityOrder;
+
+	/** Preserve legacy entrypoints; mixed replay must restore the highest-priority fallback. */
+	public void enableMixedPriorityOrder() { strictPriorityOrder = true; }
 
 	public ForwardElement(String ename) {
 		super(ename);
@@ -59,6 +63,7 @@ public class ForwardElement extends Element {
 
 	@Override
 	public List<ChangeItem> insertOneRule(Rule rule) throws Exception {
+		resetIdentifyChangesTiming();
 		// find the node in the trie
 		TrieTreeNode node = trie.insert((ForwardingRule) rule);
 		
@@ -70,7 +75,7 @@ public class ForwardElement extends Element {
 		
 		// get the affected rules
 		ArrayList<Rule> affected_rules = getAffectedRules(node);
-		List<ChangeItem> change_set = identifyChangesInsert(rule, affected_rules);
+		List<ChangeItem> change_set = timedIdentifyChangesInsert(rule, affected_rules);
 		
 		// check whether the forwarding port exists, if not create it, 
 		// and initialize the AP set of the port to empty
@@ -83,6 +88,7 @@ public class ForwardElement extends Element {
 
 	@Override
 	public List<ChangeItem> removeOneRule(Rule rule) throws Exception {
+		resetIdentifyChangesTiming();
 		// find the node in the trie
 		TrieTreeNode node = trie.search((ForwardingRule) rule);
 		if(node == null) {
@@ -106,7 +112,7 @@ public class ForwardElement extends Element {
 		
 		// get the affected rules
 		ArrayList<Rule> affected_rules = getAffectedRules(node);
-		List<ChangeItem> change_set = identifyChangesRemove(rule_to_remove, affected_rules);
+		List<ChangeItem> change_set = timedIdentifyChangesRemove(rule_to_remove, affected_rules);
 		
 		removeRule(node, rule_to_remove);
 		return change_set;
@@ -117,7 +123,8 @@ public class ForwardElement extends Element {
 		affected_rules.addAll(node.getDescendantRules());
 		affected_rules.addAll(node.getAncestorRules());
 		affected_rules.addAll(node.getRules());
-		Arrays.sort(affected_rules.toArray());
+		if (strictPriorityOrder) java.util.Collections.sort(affected_rules);
+		else Arrays.sort(affected_rules.toArray());
 		return affected_rules;
 	}
 	
