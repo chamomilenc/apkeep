@@ -151,6 +151,16 @@ already included in `model_ns`. `verification_ns` contains only property or
 reachability checking. Incremental samples preserve the separate model and
 verification time of every in-memory update.
 
+`identify_changes_ns` measures only the call to `identifyChangesInsert()` or
+`identifyChangesRemove()` inside the rule-table hit cascade. It is a subset of
+`model_ns`, not an additional component of `total_ns`. Trie/list lookup, rule
+encoding, `updatePortPredicateMap()`, AP merging, and verification are outside
+this sub-timer. Updates that return before invoking identify logic—such as a
+duplicate insertion, a missing deletion, or deletion of a hidden rule—record
+zero. `trials.csv` and `summary.csv` contain the trial aggregate for both
+Incremental and Burst. `incremental-samples.csv.gz` additionally records the
+per-update value; Burst intentionally has no per-update sample file.
+
 Heap usage deliberately measures retained model growth rather than validation
 peak memory. The input and primitive timing arrays are allocated first, a
 stable-GC heap baseline is read, the model is built, verification temporaries

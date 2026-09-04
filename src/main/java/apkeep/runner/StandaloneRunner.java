@@ -94,12 +94,14 @@ public final class StandaloneRunner {
             TrialResult.Counts counts) throws Exception {
         long[] stepModelTimes = mode.incremental() ? new long[input.updates.size()] : null;
         long[] stepVerificationTimes = mode.incremental() ? new long[input.updates.size()] : null;
+        long[] stepIdentifyChangesTimes = mode.incremental() ? new long[input.updates.size()] : null;
         stableGc();
         long heapBefore = usedHeap();
         Network network = null;
         try {
             long modelNanos = 0;
             long verificationNanos = 0;
+            long identifyChangesNanos = 0;
             long modelFinalizeNanos;
             long checked = 0;
             long loops = 0;
@@ -116,6 +118,8 @@ public final class StandaloneRunner {
                 start = System.nanoTime();
                 Network.AppliedUpdate effect = network.applyUpdateModel(update);
                 long stepModel = System.nanoTime() - start;
+                long stepIdentifyChanges = effect.getIdentifyChangesNanos();
+                identifyChangesNanos += stepIdentifyChanges;
                 long stepVerification = 0;
                 if (mode.incremental()) {
                     start = System.nanoTime();
@@ -133,6 +137,7 @@ public final class StandaloneRunner {
                 if (mode.incremental()) {
                     stepModelTimes[index] = stepModel;
                     stepVerificationTimes[index] = stepVerification;
+                    stepIdentifyChangesTimes[index] = stepIdentifyChanges;
                 }
             }
             start = System.nanoTime();
@@ -169,14 +174,14 @@ public final class StandaloneRunner {
                 steps = new ArrayList<StepTiming>(input.updates.size());
                 for (int index = 0; index < input.updates.size(); index++) {
                     steps.add(new StepTiming(index + 1, stepModelTimes[index],
-                            stepVerificationTimes[index]));
+                            stepVerificationTimes[index], stepIdentifyChangesTimes[index]));
                 }
             } else {
                 steps = java.util.Collections.emptyList();
             }
             return TrialResult.success(trial, counts, input.reachability.size(),
                     heapBefore, heapAfter, modelNanos, modelFinalizeNanos,
-                    verificationNanos, checked, loops, blackholes, reachable,
+                    verificationNanos, identifyChangesNanos, checked, loops, blackholes, reachable,
                     matches, mismatches, network.getAPNum(), steps);
         } finally {
             if (network != null) network.close();

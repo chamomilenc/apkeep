@@ -17,8 +17,8 @@ import java.util.Properties;
 import java.util.zip.GZIPOutputStream;
 
 final class ResultWriter implements Closeable {
-    private static final String TRIAL_HEADER = "experiment,dataset,method,rule_profile,mode,scale,trial,status,error,requested_updates,effective_updates,candidate_updates,forwarding_updates,acl_updates,snat_updates,dnat_updates,query_count,heap_before_bytes,heap_after_bytes,heap_delta_bytes,heap_limit_bytes,heap_peak_bytes,model_ns,model_finalize_ns,bdd_migration_ns,verification_ns,total_ns,checked_updates,loops,blackholes,reachable,expected_matches,expected_mismatches,structure_metrics";
-    private static final String SAMPLE_HEADER = "dataset,method,rule_profile,mode,scale,trial,step,source_update_file,source_update_index,model_ns,bdd_migration_ns,verification_ns";
+    private static final String TRIAL_HEADER = "experiment,dataset,method,rule_profile,mode,scale,trial,status,error,requested_updates,effective_updates,candidate_updates,forwarding_updates,acl_updates,snat_updates,dnat_updates,query_count,heap_before_bytes,heap_after_bytes,heap_delta_bytes,heap_limit_bytes,heap_peak_bytes,model_ns,model_finalize_ns,bdd_migration_ns,verification_ns,total_ns,checked_updates,loops,blackholes,reachable,expected_matches,expected_mismatches,structure_metrics,identify_changes_ns";
+    private static final String SAMPLE_HEADER = "dataset,method,rule_profile,mode,scale,trial,step,source_update_file,source_update_index,model_ns,bdd_migration_ns,verification_ns,identify_changes_ns";
     private static final String SUMMARY_HEADER = "experiment,dataset,method,rule_profile,mode,scale,metric,unit,count,min,mean,p50,p90,p95,p99,max,stddev";
 
     private final Path outputDirectory;
@@ -60,7 +60,8 @@ final class ResultWriter implements Closeable {
                 result.modelFinalizeNanos, 0, result.verificationNanos,
                 result.totalNanos(), result.checkedUpdates, result.loops,
                 result.blackholes, result.reachable, result.expectedMatches,
-                result.expectedMismatches, "ap_count=" + result.apCount);
+                result.expectedMismatches, "ap_count=" + result.apCount,
+                result.identifyChangesNanos);
         writeCsv(trialWriter, row);
         trialWriter.flush();
         if (sampleWriter != null && result.successful()) {
@@ -68,7 +69,7 @@ final class ResultWriter implements Closeable {
                 row = new ArrayList<String>();
                 add(row, dataset, "apkeep", "FULL", mode.name(), "", result.trial,
                         step.step, "updates", step.step, step.modelNanos, 0,
-                        step.verificationNanos);
+                        step.verificationNanos, step.identifyChangesNanos);
                 writeCsv(sampleWriter, row);
             }
             sampleWriter.flush();
@@ -85,8 +86,10 @@ final class ResultWriter implements Closeable {
         metrics.put("bdd_migration_ns", new ArrayList<Long>());
         metrics.put("verification_ns", new ArrayList<Long>());
         metrics.put("total_ns", new ArrayList<Long>());
+        metrics.put("identify_changes_ns", new ArrayList<Long>());
         List<Long> updateModel = new ArrayList<Long>();
         List<Long> updateVerification = new ArrayList<Long>();
+        List<Long> updateIdentifyChanges = new ArrayList<Long>();
         for (TrialResult result : results) {
             if (!result.successful() || result.trial == 0) continue;
             metrics.get("heap_before_bytes").add(result.heapBefore);
@@ -97,14 +100,17 @@ final class ResultWriter implements Closeable {
             metrics.get("bdd_migration_ns").add(0L);
             metrics.get("verification_ns").add(result.verificationNanos);
             metrics.get("total_ns").add(result.totalNanos());
+            metrics.get("identify_changes_ns").add(result.identifyChangesNanos);
             for (StepTiming step : result.steps) {
                 updateModel.add(step.modelNanos);
                 updateVerification.add(step.verificationNanos);
+                updateIdentifyChanges.add(step.identifyChangesNanos);
             }
         }
         if (mode.incremental()) {
             metrics.put("update_model_ns", updateModel);
             metrics.put("update_verification_ns", updateVerification);
+            metrics.put("update_identify_changes_ns", updateIdentifyChanges);
         }
         Path summary = outputDirectory.resolve("summary.csv");
         try (BufferedWriter writer = Files.newBufferedWriter(summary,
@@ -152,6 +158,9 @@ final class ResultWriter implements Closeable {
         properties.setProperty("parameter.merge_ap", Boolean.toString(input.parameters.mergeAP));
         properties.setProperty("parameter.bdd_table_size", Integer.toString(input.parameters.bddTableSize));
         properties.setProperty("parameter.gc_interval", Integer.toString(input.parameters.gcInterval));
+        properties.setProperty("timing.identify_changes.unit", "ns");
+        properties.setProperty("timing.identify_changes.included_in_model", "true");
+        properties.setProperty("timing.identify_changes.burst_samples", "trial-only");
         try (OutputStream output = Files.newOutputStream(outputDirectory.resolve("run.properties"),
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
             properties.store(output, "Standalone APKeep run");

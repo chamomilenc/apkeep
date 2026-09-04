@@ -374,10 +374,15 @@ public class Network {
 	public static final class AppliedUpdate {
 		private final String elementName;
 		private final Set<Integer> movedAtomicPredicates;
+		private final long identifyChangesNanos;
+		private final boolean identifyChangesInvoked;
 
-		private AppliedUpdate(String elementName, Set<Integer> movedAtomicPredicates) {
+		private AppliedUpdate(String elementName, Set<Integer> movedAtomicPredicates,
+				long identifyChangesNanos, boolean identifyChangesInvoked) {
 			this.elementName = elementName;
 			this.movedAtomicPredicates = movedAtomicPredicates;
+			this.identifyChangesNanos = identifyChangesNanos;
+			this.identifyChangesInvoked = identifyChangesInvoked;
 		}
 
 		public String getElementName() {
@@ -386,6 +391,14 @@ public class Network {
 
 		public Set<Integer> getMovedAtomicPredicates() {
 			return movedAtomicPredicates;
+		}
+
+		public long getIdentifyChangesNanos() {
+			return identifyChangesNanos;
+		}
+
+		public boolean wasIdentifyChangesInvoked() {
+			return identifyChangesInvoked;
 		}
 	}
 
@@ -410,9 +423,12 @@ public class Network {
 		Rule encoded = element.encodeOneRule(rule);
 		List<ChangeItem> changes = "+".equals(op)
 				? element.insertOneRule(encoded) : element.removeOneRule(encoded);
+		long identifyChangesNanos = element.getLastIdentifyChangesNanos();
+		boolean identifyChangesInvoked = element.wasLastIdentifyChangesInvoked();
 		Set<Integer> moved = element.updatePortPredicateMap(changes);
 		return new AppliedUpdate(elementName, moved == null
-				? new HashSet<Integer>() : new HashSet<Integer>(moved));
+				? new HashSet<Integer>() : new HashSet<Integer>(moved),
+				identifyChangesNanos, identifyChangesInvoked);
 	}
 
 	public VerificationResult verifyUpdate(AppliedUpdate update) {

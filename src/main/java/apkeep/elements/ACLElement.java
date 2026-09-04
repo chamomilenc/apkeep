@@ -50,13 +50,15 @@ public class ACLElement extends Element {
 
 	@Override
 	public List<ChangeItem> insertOneRule(Rule rule) throws Exception {
-		List<ChangeItem> change_set = identifyChangesInsert(rule, acl_rule);
+		resetIdentifyChangesTiming();
+		List<ChangeItem> change_set = timedIdentifyChangesInsert(rule, acl_rule);
 		port_aps_raw.putIfAbsent(rule.getPort(), new HashSet<Integer>());
 		return change_set;
 	}
 
 	@Override
 	public List<ChangeItem> removeOneRule(Rule rule) throws Exception {
+		resetIdentifyChangesTiming();
 		int index = findRule(rule);
 		if(index == acl_rule.size()) {
 			Logger.logInfo("Rule not found " + rule.toString());
@@ -70,7 +72,7 @@ public class ACLElement extends Element {
 			return new ArrayList<ChangeItem>();
 		}
 		
-		List<ChangeItem> change_set = identifyChangesRemove(rule_to_remove, acl_rule);
+		List<ChangeItem> change_set = timedIdentifyChangesRemove(rule_to_remove, acl_rule);
 		removeRule(index);
 		return change_set;
 	}

@@ -16,6 +16,7 @@ final class TrialResult {
     final long modelNanos;
     final long modelFinalizeNanos;
     final long verificationNanos;
+    final long identifyChangesNanos;
     final long checkedUpdates;
     final long loops;
     final long blackholes;
@@ -29,6 +30,7 @@ final class TrialResult {
             int forwardingUpdates, int aclUpdates, int nativeNatUpdates,
             int queryCount, long heapBefore, long heapAfter,
             long modelNanos, long modelFinalizeNanos, long verificationNanos,
+            long identifyChangesNanos,
             long checkedUpdates, long loops, long blackholes, long reachable,
             long expectedMatches, long expectedMismatches, int apCount,
             List<StepTiming> steps) {
@@ -44,6 +46,7 @@ final class TrialResult {
         this.modelNanos = modelNanos;
         this.modelFinalizeNanos = modelFinalizeNanos;
         this.verificationNanos = verificationNanos;
+        this.identifyChangesNanos = identifyChangesNanos;
         this.checkedUpdates = checkedUpdates;
         this.loops = loops;
         this.blackholes = blackholes;
@@ -57,12 +60,14 @@ final class TrialResult {
     static TrialResult success(int trial, Counts counts, int queryCount,
             long heapBefore, long heapAfter, long modelNanos,
             long modelFinalizeNanos, long verificationNanos,
+            long identifyChangesNanos,
             long checkedUpdates, long loops, long blackholes, long reachable,
             long expectedMatches, long expectedMismatches, int apCount,
             List<StepTiming> steps) {
         return new TrialResult(trial, "SUCCESS", "", counts.forwarding,
                 counts.acl, counts.nativeNat, queryCount, heapBefore, heapAfter,
                 modelNanos, modelFinalizeNanos, verificationNanos,
+                identifyChangesNanos,
                 checkedUpdates, loops, blackholes, reachable, expectedMatches,
                 expectedMismatches, apCount, steps);
     }
@@ -72,6 +77,7 @@ final class TrialResult {
                 + (failure.getMessage() == null ? "" : ": " + failure.getMessage());
         return new TrialResult(trial, "FAILED", message, counts.forwarding,
                 counts.acl, counts.nativeNat, queryCount, -1, -1, 0, 0, 0,
+                0,
                 0, 0, 0, 0, 0, 0, 0, Collections.<StepTiming>emptyList());
     }
 
