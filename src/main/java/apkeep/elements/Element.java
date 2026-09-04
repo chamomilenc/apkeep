@@ -23,7 +23,7 @@ public abstract class Element {
 	
 	protected String name;
 	
-	protected static BDDACLWrapper bdd;
+	protected BDDACLWrapper bdd;
 	protected APKeeper apk;
 	
 	protected Map<String, Set<Integer>> port_aps_raw;
@@ -33,14 +33,15 @@ public abstract class Element {
 		port_aps_raw = new HashMap<>();
 	}
 
-	public static void setBDDWrapper(BDDACLWrapper bdd_engine) {
-		bdd = bdd_engine;
-		
-	}
-	
 	public void setAPC(APKeeper theapk) {
+		if (theapk == null) throw new IllegalArgumentException("APKeeper must not be null");
 		apk = theapk;
+		bdd = theapk.getBDDWrapper();
 		apk.addElement(name, this);
+	}
+
+	public BDDACLWrapper getBDDWrapper() {
+		return bdd;
 	}
 	
 	public abstract void initialize();
@@ -364,7 +365,7 @@ public abstract class Element {
 		return new_aps;
 	}
 
-	public static boolean hasOverlap(Set<Integer> aps1, Set<Integer> aps2) {
+	public static boolean hasOverlap(BDDACLWrapper bdd, Set<Integer> aps1, Set<Integer> aps2) {
 		if (aps1.isEmpty() || aps2.isEmpty()) {
 			return false;
 		}

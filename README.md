@@ -157,6 +157,57 @@ stable-GC heap baseline is read, the model is built, verification temporaries
 are cleared, and a second stable-GC value is read while the model remains
 alive. For Burst, the second reading occurs before final verification.
 
+### Rule-table BDD manager comparison
+
+The JAR can isolate the cost of maintaining each Element's prioritized rule
+table with either one shared BDD manager or one manager per Element:
+
+```bash
+java -jar target/apkeep-1.0.0.jar \
+  -bddtest /absolute/path/to/dataset
+
+# Short alias and explicit output directory
+java -jar target/apkeep-1.0.0.jar \
+  -bdd /absolute/path/to/dataset --output /absolute/path/to/empty-output
+```
+
+The input is loaded once. Each manager mode performs one unrecorded warmup and
+three measured trials, with a fresh empty rule-table model per trial. Rule
+parsing and BDD encoding happen before the timer. The measured interval contains
+only `insertOneRule()` or `removeOneRule()`; it deliberately excludes
+`updatePortPredicateMap()`, AP split/transfer/merge, topology verification, and
+garbage collection. The returned `ChangeItem` objects are counted and then
+discarded. The shared and per-Element runs must produce the same sequence of
+change counts.
+
+The default output directory is
+`results/<dataset>/<timestamp>-bdd-rule-table/` and contains exactly:
+
+```text
+shared-manager.csv
+per-element-manager.csv
+```
+
+Both files record the dataset, manager mode, measured trial, original update
+index, operation, rule type, Element, allocated node/cache sizes, elapsed
+nanoseconds, `ChangeItem` count, status, and error. Warmup rows are omitted
+unless a warmup fails. A rule failure stops the remaining trials of that mode,
+but the other mode is still attempted. A non-empty output directory is never
+overwritten.
+
+In shared mode, all single-Element APKeeper instances use the complete
+`BDD_TABLE_SIZE` manager and the historical 1,000,000-entry operation cache. In
+per-Element mode, the same total node-table budget is divided among all
+forwarding, ACL, and native APKeep NAT Elements. Every Element receives at
+least 10,000 nodes, and the remainder is allocated in proportion to its update
+count with deterministic name-based rounding. The 1,000,000-entry cache budget
+is partitioned the same way with a minimum of 1,000 entries per manager. The
+command fails before running if either budget cannot satisfy its minimums.
+
+MINT-style `nat_updates` are not accepted by this experiment. APKeep's native
+NAT declarations in `nat.txt` and native `nat` rows in `updates` remain
+supported.
+
 APKeep provides several commands to analyze a network.
 First, initialize the network snapshot by specifying the folder that contains the required files, for example:
 

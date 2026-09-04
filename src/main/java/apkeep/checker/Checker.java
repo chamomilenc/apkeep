@@ -235,12 +235,12 @@ public class Checker {
 			Set<Integer> fwd_aps, Set<Integer> acl_aps) {
 		if(history.contains(cur_hop)) {
 			if(acl_aps != null) {
-				if(!Element.hasOverlap(fwd_aps, acl_aps)) {
+				if(!Element.hasOverlap(net.bdd_engine, fwd_aps, acl_aps)) {
 					return true;
 				}
 			}
 			history.add(cur_hop);
-			Loop loop = new Loop(fwd_aps, history, cur_hop);
+			Loop loop = new Loop(net.bdd_engine, fwd_aps, history, cur_hop);
 			loops.add(loop);
 			return true;
 		}
@@ -438,7 +438,8 @@ public class Checker {
 
 	private boolean overlaps(int fwdAp, int aclAp) {
 		if (!net.isDivisionActivated() || aclAp == BDDACLWrapper.BDDTrue) return true;
-		return Element.hasOverlap(Collections.singleton(fwdAp), Collections.singleton(aclAp));
+		return Element.hasOverlap(net.bdd_engine,
+				Collections.singleton(fwdAp), Collections.singleton(aclAp));
 	}
 
 	private static List<Integer> sortedIntegers(Set<Integer> values) {

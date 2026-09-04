@@ -13,6 +13,7 @@ import apkeep.rules.RewriteRule;
 import apkeep.rules.Rule;
 import apkeep.utils.Logger;
 import common.BDDACLWrapper;
+import common.Fields;
 import common.PositionTuple;
 import common.Utility;
 
@@ -34,8 +35,8 @@ public class NATElement extends Element {
 	@Override
 	public void initialize() {
 		// initialize the AP set for default rewrite rule
-		RewriteRule default_rule = new RewriteRule(BDDACLWrapper.BDDTrue, BDDACLWrapper.BDDTrue, 
-				BDDACLWrapper.BDDTrue, "default", 0);
+		RewriteRule default_rule = new RewriteRule(BDDACLWrapper.BDDTrue, BDDACLWrapper.BDDTrue,
+				BDDACLWrapper.BDDTrue, bdd.get_field_bdd(Fields.dst_ip), "default", 0);
 		rewrite_rules.add(default_rule);
 		rule_map.put(default_rule.getPort(), default_rule);
 		
@@ -119,7 +120,8 @@ public class NATElement extends Element {
 		int old_bdd = apk.encodePrefixBDD(old_prefix, old_prefixlen);
 		int new_bdd = apk.encodePrefixBDD(new_prefix, new_prefixlen);
 		
-		return new RewriteRule(old_bdd, new_bdd, new_ip, 65535);
+		return new RewriteRule(old_bdd, new_bdd,
+				bdd.get_field_bdd(Fields.dst_ip), new_ip, 65535);
 	}
 
 	@Override

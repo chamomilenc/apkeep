@@ -228,6 +228,7 @@ public final class StandaloneRunner {
         System.err.println("Usage:");
         System.err.println("  java -jar apkeep-1.0.0.jar -incr <dataset-directory> [--output <directory>]");
         System.err.println("  java -jar apkeep-1.0.0.jar -brust|-burst <dataset-directory> --verify invariants|reachability [--output <directory>]");
+        BddRuleTableBenchmarkRunner.printUsage();
     }
 
     private static final class Arguments {

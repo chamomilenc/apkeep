@@ -5,14 +5,18 @@ import java.util.List;
 import java.util.Set;
 
 import apkeep.core.APKeeper;
+import common.BDDACLWrapper;
 import common.PositionTuple;
 
 public class Loop {
 	Set<Integer> apset;
 	List<PositionTuple> path;
+	private final BDDACLWrapper bdd;
 	
-	public Loop(Set<Integer> rewrited_aps, List<PositionTuple> history, PositionTuple cur_hop)
+	public Loop(BDDACLWrapper bdd, Set<Integer> rewrited_aps,
+			List<PositionTuple> history, PositionTuple cur_hop)
 	{
+		this.bdd = bdd;
 		apset = rewrited_aps;
 		path = history;
 		while(path.size() > 0) {
@@ -25,7 +29,7 @@ public class Loop {
 	
 	public String toString()
 	{
-		HashSet<String> prefixes = APKeeper.getAPPrefixes(apset);
+		HashSet<String> prefixes = APKeeper.getAPPrefixes(bdd, apset);
 		String loop = "loop found for " + prefixes + ":\n";
 		for (int i=0; i<path.size(); i++) {
 			loop += path.get(i) + " ";

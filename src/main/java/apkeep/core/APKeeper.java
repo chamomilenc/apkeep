@@ -24,7 +24,7 @@ import jdd.bdd.BDD;
  * Computes Atomic Predicates using BDDs.
  */
 public class APKeeper {
-	public static BDDACLWrapper bddengine;
+	private final BDDACLWrapper bddengine;
 	private Set<Integer> AP;
 	
 	private Map<String, Element> elements;
@@ -41,6 +41,7 @@ public class APKeeper {
 	HashMap<String,Integer> cachePrefixBDD;
 	
 	public APKeeper(BDDACLWrapper bdd_engine) {
+		if (bdd_engine == null) throw new IllegalArgumentException("bdd_engine must not be null");
 		bddengine = bdd_engine;
 		AP = new HashSet<Integer>();
 		
@@ -54,6 +55,10 @@ public class APKeeper {
 		ports_to_merge = new HashSet<ArrayList<String>>();
 		
 		cachePrefixBDD = new HashMap<>();
+	}
+
+	public BDDACLWrapper getBDDWrapper() {
+		return bddengine;
 	}
 	
 	public void addElement(String ename, Element e) {
@@ -415,7 +420,7 @@ public class APKeeper {
 //		}
 	}
 	
-	public static HashSet<String> getAPPrefixes(Set<Integer> aps)
+	public static HashSet<String> getAPPrefixes(BDDACLWrapper bddengine, Set<Integer> aps)
 	{
 		HashSet<String> ip_prefixs = new HashSet<String>();
 		int total_bits = BDDACLWrapper.protocolBits + 2*BDDACLWrapper.portBits+

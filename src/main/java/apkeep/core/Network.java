@@ -76,8 +76,6 @@ public class Network {
 		
 		new HashMap<>();
 
-		Element.setBDDWrapper(bdd_engine);
-		
 		checker = new Checker(this);
 		standaloneInsertPhaseFinished = false;
 	}

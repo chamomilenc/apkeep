@@ -62,6 +62,8 @@ public class BDDACLWrapper implements Serializable{
       private static final long serialVersionUID = 7284490986562707221L;
 
       BDD aclBDD;
+      private final int configuredNodeTableSize;
+      private final int configuredCacheSize;
 
       /**
        * the arrays store BDD variables.
@@ -110,12 +112,30 @@ public class BDDACLWrapper implements Serializable{
 
       public BDDACLWrapper()
       {
+            this(Parameters.BDD_TABLE_SIZE, 1000000);
+      }
+
+      /**
+       * Creates an independent BDD manager with explicitly bounded tables.
+       * The overload is primarily used by the rule-table manager comparison,
+       * while the no-argument constructor preserves APKeep's normal behavior.
+       */
+      public BDDACLWrapper(int nodeTableSize, int cacheSize)
+      {
+            if (nodeTableSize <= 0) {
+                  throw new IllegalArgumentException("nodeTableSize must be positive");
+            }
+            if (cacheSize <= 0) {
+                  throw new IllegalArgumentException("cacheSize must be positive");
+            }
+            configuredNodeTableSize = nodeTableSize;
+            configuredCacheSize = cacheSize;
             // for debugging 
             //aclBDD = new DebugBDD(100000, 10000);
             
             // normal
             //aclBDD = new BDD(100000000, 1000000);
-    	    aclBDD = new BDD(Parameters.BDD_TABLE_SIZE, 1000000);
+            aclBDD = new BDD(nodeTableSize, cacheSize);
             //aclBDD = new BDD(10000000, 1000000);
             
             protocol = new int[protocolBits];
@@ -144,6 +164,16 @@ public class BDDACLWrapper implements Serializable{
                         aclBDD.ref(aclBDD.and(mplsLabelField, mplsLabelBit));
             dstIPField = AndInBatch(dstIP);
             //dstIPInnerField = AndInBatch(dstIPInner);
+      }
+
+      public int getConfiguredNodeTableSize()
+      {
+            return configuredNodeTableSize;
+      }
+
+      public int getConfiguredCacheSize()
+      {
+            return configuredCacheSize;
       }
       
       public void createIPinIPPermutation()
