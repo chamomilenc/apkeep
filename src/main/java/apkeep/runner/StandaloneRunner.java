@@ -90,11 +90,12 @@ public final class StandaloneRunner {
         return failed ? 1 : 0;
     }
 
-    private static TrialResult runTrial(DatasetInput input, RunMode mode, int trial,
+    static TrialResult runTrial(DatasetInput input, RunMode mode, int trial,
             TrialResult.Counts counts) throws Exception {
         long[] stepModelTimes = mode.incremental() ? new long[input.updates.size()] : null;
         long[] stepVerificationTimes = mode.incremental() ? new long[input.updates.size()] : null;
         long[] stepIdentifyChangesTimes = mode.incremental() ? new long[input.updates.size()] : null;
+        long[] stepTotalTimes = mode.incremental() ? new long[input.updates.size()] : null;
         stableGc();
         long heapBefore = usedHeap();
         Network network = null;
@@ -114,7 +115,9 @@ public final class StandaloneRunner {
             network = input.newNetwork();
             modelNanos += System.nanoTime() - start;
             for (int index = 0; index < input.updates.size(); index++) {
+                checkInterrupted();
                 String update = input.updates.get(index);
+                long stepStarted = System.nanoTime();
                 start = System.nanoTime();
                 Network.AppliedUpdate effect = network.applyUpdateModel(update);
                 long stepModel = System.nanoTime() - start;
@@ -138,8 +141,10 @@ public final class StandaloneRunner {
                     stepModelTimes[index] = stepModel;
                     stepVerificationTimes[index] = stepVerification;
                     stepIdentifyChangesTimes[index] = stepIdentifyChanges;
+                    stepTotalTimes[index] = System.nanoTime() - stepStarted;
                 }
             }
+            checkInterrupted();
             start = System.nanoTime();
             network.finalizeStandaloneModel();
             modelFinalizeNanos = System.nanoTime() - start;
@@ -173,8 +178,9 @@ public final class StandaloneRunner {
             if (mode.incremental()) {
                 steps = new ArrayList<StepTiming>(input.updates.size());
                 for (int index = 0; index < input.updates.size(); index++) {
-                    steps.add(new StepTiming(index + 1, stepModelTimes[index],
-                            stepVerificationTimes[index], stepIdentifyChangesTimes[index]));
+                    steps.add(new StepTiming(index + 1, input.sourceUpdateIndices.get(index),
+                            stepModelTimes[index], stepVerificationTimes[index],
+                            stepIdentifyChangesTimes[index], stepTotalTimes[index]));
                 }
             } else {
                 steps = java.util.Collections.emptyList();
@@ -207,6 +213,12 @@ public final class StandaloneRunner {
         return runtime.totalMemory() - runtime.freeMemory();
     }
 
+    private static void checkInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("APKeep trial cancelled");
+        }
+    }
+
     private static String inputHash(DatasetInput input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -233,6 +245,7 @@ public final class StandaloneRunner {
         System.err.println("Usage:");
         System.err.println("  java -jar apkeep-1.0.0.jar -incr <dataset-directory> [--output <directory>]");
         System.err.println("  java -jar apkeep-1.0.0.jar -brust|-burst <dataset-directory> --verify invariants|reachability [--output <directory>]");
+        ExperimentTwoRunner.printUsage();
     }
 
     private static final class Arguments {

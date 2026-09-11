@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import apkeep.core.Network;
@@ -18,6 +19,7 @@ import apkeep.core.Network;
 /** Fully materialized immutable input shared by all warmup/measurement trials. */
 final class DatasetInput {
     final Path directory;
+    final String datasetName;
     final ParameterSettings parameters;
     final List<String> topology;
     final List<String> devices;
@@ -25,15 +27,22 @@ final class DatasetInput {
     final Map<String, Map<String, Set<String>>> vlanPorts;
     final Map<String, Set<String>> deviceNats;
     final List<String> updates;
+    final List<Integer> sourceUpdateIndices;
+    final int requestedUpdates;
+    final int candidateUpdates;
+    final int ignoredNatUpdates;
     final List<ReachabilityQuery> reachability;
 
-    private DatasetInput(Path directory, ParameterSettings parameters,
+    private DatasetInput(Path directory, String datasetName, ParameterSettings parameters,
             List<String> topology, List<String> devices,
             Map<String, Set<String>> deviceAcls,
             Map<String, Map<String, Set<String>>> vlanPorts,
             Map<String, Set<String>> deviceNats, List<String> updates,
+            List<Integer> sourceUpdateIndices, int requestedUpdates,
+            int candidateUpdates, int ignoredNatUpdates,
             List<ReachabilityQuery> reachability) {
         this.directory = directory;
+        this.datasetName = datasetName;
         this.parameters = parameters;
         this.topology = topology;
         this.devices = devices;
@@ -41,32 +50,144 @@ final class DatasetInput {
         this.vlanPorts = vlanPorts;
         this.deviceNats = deviceNats;
         this.updates = updates;
+        this.sourceUpdateIndices = sourceUpdateIndices;
+        this.requestedUpdates = requestedUpdates;
+        this.candidateUpdates = candidateUpdates;
+        this.ignoredNatUpdates = ignoredNatUpdates;
         this.reachability = reachability;
     }
 
     static DatasetInput load(Path input, boolean requireReachability) throws IOException {
         Path directory = input.toRealPath();
+        return loadResolved(directory, requireReachability, inferDatasetName(directory), false);
+    }
+
+    static DatasetInput load(Path input, boolean requireReachability, String datasetName)
+            throws IOException {
+        Path directory = input.toRealPath();
+        return loadResolved(directory, requireReachability, datasetName, false);
+    }
+
+    static DatasetInput loadForExperimentTwo(Path input, String datasetName)
+            throws IOException {
+        Path directory = input.toRealPath();
+        return loadResolved(directory, false, datasetName, true);
+    }
+
+    private static DatasetInput loadResolved(Path directory, boolean requireReachability,
+            String datasetName, boolean ignoreNatUpdates) throws IOException {
         if (!Files.isDirectory(directory)) {
             throw new IOException("dataset is not a directory: " + directory);
         }
-//        Path natUpdates = directory.resolve("nat_updates");
-//        if (Files.exists(natUpdates)) {
-//            throw new IOException("standalone APKeep does not support nat_updates: " + natUpdates);
-//        }
         List<String> topology = requiredLines(directory.resolve("topo.txt"));
         List<String> updates = requiredLines(directory.resolve("updates"));
-        ParameterSettings parameters = ParameterSettings.load(directory);
+        ParameterSettings parameters = ParameterSettings.load(directory, datasetName);
         List<String> devices = optionalLines(directory.resolve("devices.txt"));
         Map<String, Set<String>> acls = readAcls(directory.resolve("acls"),
-                parameters.name, topology, devices, updates);
+                datasetName, topology, devices, updates);
         Map<String, Map<String, Set<String>>> vlans = readVlans(directory.resolve("vlan.txt"));
         Map<String, Set<String>> nats = readNats(directory.resolve("nat.txt"));
         List<ReachabilityQuery> queries = requireReachability
                 ? readReachability(directory.resolve("reachability.txt"))
                 : Collections.<ReachabilityQuery>emptyList();
         if (requireReachability) validateQueryDevices(directory, topology, devices, updates, queries);
-        return new DatasetInput(directory, parameters, topology, devices, acls,
-                vlans, nats, updates, queries);
+        InputMetadata metadata = readMetadata(directory, updates.size(), ignoreNatUpdates);
+        return new DatasetInput(directory, datasetName, parameters, topology, devices, acls,
+                vlans, nats, updates, metadata.sourceUpdateIndices,
+                metadata.requestedUpdates, metadata.candidateUpdates,
+                metadata.ignoredNatUpdates, queries);
+    }
+
+    private static String inferDatasetName(Path directory) {
+        Path parent = directory.getParent();
+        if (parent != null && "experiment-inputs".equals(parent.getFileName().toString())
+                && parent.getParent() != null) {
+            return parent.getParent().getFileName().toString();
+        }
+        return directory.getFileName().toString();
+    }
+
+    private static InputMetadata readMetadata(Path directory, int updateCount,
+            boolean ignoreNatUpdates) throws IOException {
+        Properties properties = new Properties();
+        Path manifest = directory.resolve("manifest.properties");
+        if (Files.isRegularFile(manifest)) {
+            java.io.InputStream input = Files.newInputStream(manifest);
+            try {
+                properties.load(input);
+            } finally {
+                input.close();
+            }
+        }
+        int requested = integerProperty(properties, "requested.updates", updateCount, manifest);
+        int candidate = integerProperty(properties, "candidate.updates", updateCount, manifest);
+        int ignoredNat = Files.isRegularFile(directory.resolve("nat_updates"))
+                ? readLines(directory.resolve("nat_updates")).size() : 0;
+        if (ignoredNat > 0 && !ignoreNatUpdates) {
+            throw new IOException("MINT-style nat_updates is not supported: "
+                    + directory.resolve("nat_updates"));
+        }
+        List<Integer> indices = new ArrayList<Integer>();
+        Path sourceIndices = directory.resolve("source-indices.txt");
+        if (Files.isRegularFile(sourceIndices)) {
+            int lineNumber = 0;
+            for (String raw : Files.readAllLines(sourceIndices, StandardCharsets.UTF_8)) {
+                lineNumber++;
+                String line = raw.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                String[] fields = line.split("\\s+");
+                if (fields.length != 2) {
+                    throw new IOException(sourceIndices + ":" + lineNumber
+                            + ": expected '<source> <line-index>'");
+                }
+                if (!"UPDATES".equals(fields[0]) && !"NAT_UPDATES".equals(fields[0])) {
+                    throw new IOException(sourceIndices + ":" + lineNumber
+                            + ": unknown update source " + fields[0]);
+                }
+                int index = parseInt(fields[1], sourceIndices, lineNumber, "source index");
+                if (index <= 0) {
+                    throw new IOException(sourceIndices + ":" + lineNumber
+                            + ": source index must be positive");
+                }
+                if ("UPDATES".equals(fields[0])) indices.add(index);
+            }
+            if (indices.size() != updateCount) {
+                throw new IOException(sourceIndices + ": contains " + indices.size()
+                        + " UPDATES entries but updates contains " + updateCount + " rules");
+            }
+        } else {
+            for (int index = 1; index <= updateCount; index++) indices.add(index);
+        }
+        return new InputMetadata(Collections.unmodifiableList(indices), requested,
+                candidate, ignoredNat);
+    }
+
+    private static int integerProperty(Properties properties, String key, int fallback,
+            Path manifest) throws IOException {
+        String value = properties.getProperty(key);
+        if (value == null) return fallback;
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 0) throw new NumberFormatException();
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new IOException(manifest + ": invalid non-negative integer " + key, exception);
+        }
+    }
+
+    private static final class InputMetadata {
+        final List<Integer> sourceUpdateIndices;
+        final int requestedUpdates;
+        final int candidateUpdates;
+        final int ignoredNatUpdates;
+
+        InputMetadata(List<Integer> sourceUpdateIndices, int requestedUpdates,
+                int candidateUpdates, int ignoredNatUpdates) {
+            this.sourceUpdateIndices = sourceUpdateIndices;
+            this.requestedUpdates = requestedUpdates;
+            this.candidateUpdates = candidateUpdates;
+            this.ignoredNatUpdates = ignoredNatUpdates;
+        }
     }
 
     Network newNetwork() {

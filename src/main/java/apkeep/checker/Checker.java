@@ -11,6 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import apkeep.core.Network;
 import apkeep.elements.ACLElement;
@@ -269,6 +270,7 @@ public class Checker {
 	 * returns immediately after the first violation.
 	 */
 	public VerificationResult verifyUpdate(String elementName, Set<Integer> movedAps) {
+		checkpoint();
 		Element changed = net.getElement(elementName);
 		if (changed == null || movedAps == null || movedAps.isEmpty()) {
 			return VerificationResult.none();
@@ -278,7 +280,9 @@ public class Checker {
 			List<String> applications = new ArrayList<String>(net.getAclApplicationNodes(elementName));
 			Collections.sort(applications);
 			for (String root : applications) {
+				checkpoint();
 				for (int aclAp : moved) {
+					checkpoint();
 					for (int fwdAp : sortedIntegers(net.getForwardingAtomicPredicates())) {
 						if (!overlaps(fwdAp, aclAp)) continue;
 						VerificationResult result = verifyOne(root, fwdAp, aclAp);
@@ -289,6 +293,7 @@ public class Checker {
 			return VerificationResult.none();
 		}
 		for (int fwdAp : moved) {
+			checkpoint();
 			VerificationResult result = verifyOne(elementName, fwdAp, BDDACLWrapper.BDDTrue);
 			if (result.isViolation()) return result;
 		}
@@ -304,7 +309,9 @@ public class Checker {
 		Collections.sort(devices);
 		List<Integer> aps = sortedIntegers(net.getForwardingAtomicPredicates());
 		for (String device : devices) {
+			checkpoint();
 			for (int ap : aps) {
+				checkpoint();
 				checked++;
 				VerificationResult result = verifyOne(device, ap, BDDACLWrapper.BDDTrue);
 				if (result.getType() == ViolationType.LOOP) loopCount++;
@@ -327,6 +334,7 @@ public class Checker {
 		for (int ap : aps) pending.addLast(new State(source, null, ap, BDDACLWrapper.BDDTrue));
 		Set<String> reachable = new LinkedHashSet<String>();
 		while (!pending.isEmpty()) {
+			checkpoint();
 			State state = pending.removeFirst();
 			if (!visited.add(state) || !stateHasPackets(state)) continue;
 			Element direct = net.getElement(state.node);
@@ -349,6 +357,7 @@ public class Checker {
 	}
 
 	private VerificationResult dfs(State state, Map<State, VisitState> colors, List<String> path) {
+		checkpoint();
 		if (!stateHasPackets(state)) return VerificationResult.none();
 		VisitState color = colors.get(state);
 		if (color == VisitState.VISITING) {
@@ -368,6 +377,7 @@ public class Checker {
 			return result;
 		}
 		for (State next : expansion.next) {
+			checkpoint();
 			VerificationResult result = dfs(next, colors, path);
 			if (result.isViolation()) {
 				path.remove(path.size() - 1);
@@ -393,6 +403,7 @@ public class Checker {
 		List<String> ports = new ArrayList<String>(element.getPorts());
 		Collections.sort(ports);
 		for (String port : ports) {
+			checkpoint();
 			if ("default".equals(port)) continue;
 			if (state.inputPort != null && state.inputPort.equals(port)) continue;
 			if (element instanceof ACLElement && "deny".equals(port)) continue;
@@ -410,6 +421,7 @@ public class Checker {
 			List<String> physicalPorts = new ArrayList<String>(getPhysicalPorts(element, port));
 			Collections.sort(physicalPorts);
 			for (String physicalPort : physicalPorts) {
+				checkpoint();
 				if ("self".equalsIgnoreCase(physicalPort)) continue;
 				PositionTuple output = new PositionTuple(state.node, physicalPort);
 				Set<PositionTuple> connected = net.getConnectedPorts(output);
@@ -417,6 +429,7 @@ public class Checker {
 				List<PositionTuple> targets = new ArrayList<PositionTuple>(connected);
 				Collections.sort(targets, POSITION_ORDER);
 				for (PositionTuple target : targets) {
+					checkpoint();
 					for (int fwd : sortedIntegers(outputFwd)) {
 						for (int acl : sortedIntegers(outputAcl)) {
 							if (overlaps(fwd, acl)) {
@@ -445,6 +458,12 @@ public class Checker {
 		List<Integer> result = new ArrayList<Integer>(values);
 		Collections.sort(result);
 		return result;
+	}
+
+	private static void checkpoint() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("APKeep verification cancelled");
+		}
 	}
 
 	private enum VisitState { VISITING, DONE }

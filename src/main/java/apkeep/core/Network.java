@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import apkeep.checker.Checker;
 import apkeep.checker.FullInvariantReport;
@@ -404,6 +405,7 @@ public class Network {
 
 	/** Apply one in-memory update without verification or AP soft merging. */
 	public AppliedUpdate applyUpdateModel(String rule) throws Exception {
+		checkpoint();
 		Logger.logDebugInfo(rule);
 		String[] tokens = rule.trim().split("\\s+");
 		if (tokens.length < 3) throw new IllegalArgumentException("invalid update: " + rule);
@@ -432,6 +434,7 @@ public class Network {
 	}
 
 	public VerificationResult verifyUpdate(AppliedUpdate update) {
+		checkpoint();
 		if (update == null || update.movedAtomicPredicates.isEmpty()) {
 			return VerificationResult.none();
 		}
@@ -439,10 +442,12 @@ public class Network {
 	}
 
 	public void finishStandaloneUpdate() throws Exception {
+		checkpoint();
 		softMergeAPBatch();
 	}
 
 	public void finalizeStandaloneModel() throws Exception {
+		checkpoint();
 		hardMergeAPBatch();
 	}
 
@@ -525,9 +530,16 @@ public class Network {
 	}
 	
 	private void hardMergeAPBatch() throws Exception {
+		checkpoint();
 		fwd_apk.tryMergeAPBatch();
 		if (acl_apk != null) {
 			acl_apk.tryMergeAPBatch();
+		}
+	}
+
+	private static void checkpoint() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("APKeep model operation cancelled");
 		}
 	}
 	

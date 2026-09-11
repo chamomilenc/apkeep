@@ -3,6 +3,7 @@ package apkeep.main;
 import java.io.IOException;
 
 import apkeep.runner.StandaloneRunner;
+import apkeep.runner.ExperimentTwoRunner;
 
 import org.jline.builtins.Completers;
 import org.jline.reader.LineReader;
@@ -15,7 +16,8 @@ public class Main {
 
 	public static void main(String[] args) throws IOException {
 		if (args.length > 0) {
-			int status = StandaloneRunner.run(args);
+			int status = "-experiment2".equals(args[0])
+					? ExperimentTwoRunner.run(args) : StandaloneRunner.run(args);
 			if (status != 0) System.exit(status);
 			return;
 		}

@@ -64,6 +64,72 @@ failed measured trial is recorded, and the remaining measured trials still run
 from fresh models. The process exits non-zero if a warmup or measured trial
 fails.
 
+### batched MINT Experiment 2
+
+The standalone JAR can also run APKeep over every incremental dataset listed in
+an `incr.sh`-style file:
+
+```bash
+java -Xmx128g -jar target/apkeep-1.0.0.jar \
+  -experiment2 --datasets-file incr.sh
+```
+
+The file is parsed as data and is never executed. Blank lines and comments are
+ignored, and single- or double-quoted paths are accepted. Every non-comment
+line must contain exactly one `-incr <dataset-directory>` selection. Duplicate
+directories or logical dataset names, malformed commands, and missing
+directories are rejected. Datasets are run in logical-name order. For a MINT
+snapshot path such as
+`networks/stanford/experiment-inputs/incremental-u10000-profile-full`, the
+logical name is `stanford`.
+
+Experiment 2 performs one unrecorded warmup and one measured incremental trial
+per dataset. Every trial starts from an empty model and checks both loops and
+blackholes after every update. The default controls match the MINT experiment:
+
+```text
+trial timeout:       6 hours
+heap-used limit:     120 GiB
+heap sampling:       every 100 ms
+cancellation grace:  1 minute
+```
+
+The heap-used limit must be strictly smaller than the JVM `-Xmx`. It can be
+overridden together with the other controls and result root:
+
+```bash
+java -Xmx128g -jar target/apkeep-1.0.0.jar \
+  -experiment2 --datasets-file incr.sh \
+  --trial-timeout 6h \
+  --max-heap-memory 120GB \
+  --cancellation-grace 1m \
+  --output experiment-results/experiment-2
+```
+
+A timed-out trial is recorded as `TIMEOUT`; a heap-limit event or JVM
+`OutOfMemoryError` is recorded as `OUT_OF_MEMORY`. The current dataset is
+abandoned and the next dataset continues after successful cancellation. If a
+worker does not stop during the grace period, the batch stops and the JVM must
+be restarted before another reliable experiment.
+
+Each timestamped run directory contains `run.properties`, `trials.csv`,
+`incremental-samples.csv.gz`, and the long-form `summary.csv`. On normal batch
+completion, including `COMPLETED_WITH_FAILURES`, the experiment root also gets
+atomically replaced `apkeep.csv` and `apkeep-summary.csv` files. The latter
+reports the measured per-update end-to-end `mean`, `p50`, `p90`, `p95`, `p99`,
+`max`, and `min` latency for each successful dataset. Per-update `total_ns`
+covers model maintenance, verification, temporary cleanup, and the normal
+post-update soft merge; it is therefore at least `model_ns + verification_ns`.
+
+MINT snapshot metadata is retained in the output: manifest requested and
+candidate counts are copied into the trial row, while `source-indices.txt`
+maps every sample back to its original `UPDATES` line. Standalone
+`nat_updates` entries are deliberately ignored in this APKeep-only comparison,
+reported through a warning and `ignored_nat_updates` structure metric, and
+recorded as `nat.updates.policy=IGNORE` in `run.properties`. APKeep-native NAT
+rows inside `updates` remain supported. The regular `-incr` and Burst commands
+continue to reject a non-empty MINT-style `nat_updates` file.
+
 #### parameters.json is optional
 
 When `parameters.json` is absent, these defaults are used (with `NAME` set to

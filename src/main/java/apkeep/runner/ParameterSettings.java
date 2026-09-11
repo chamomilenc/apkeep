@@ -41,7 +41,13 @@ final class ParameterSettings {
     }
 
     static ParameterSettings load(Path datasetDirectory) throws IOException {
-        String datasetName = datasetDirectory.getFileName().toString();
+        return load(datasetDirectory, datasetDirectory.getFileName().toString());
+    }
+
+    static ParameterSettings load(Path datasetDirectory, String datasetName) throws IOException {
+        if (datasetName == null || datasetName.trim().isEmpty()) {
+            throw new IllegalArgumentException("dataset name must not be blank");
+        }
         JSONObject json = new JSONObject();
         Path file = datasetDirectory.resolve("parameters.json");
         if (Files.exists(file)) {
