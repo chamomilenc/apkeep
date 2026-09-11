@@ -59,6 +59,38 @@ public class Network {
 
 	private Checker checker;
 	private boolean standaloneInsertPhaseFinished;
+	private boolean mixedExperiment;
+	private final Set<String> mixedRules = new HashSet<String>();
+	private final Map<String, String> mixedAclApplications = new HashMap<String, String>();
+
+	/** Experiment 7: explicit logical edges, selected FIB elements, shared ACL tables. */
+	public void initializeMixedNetwork(List<String> links, Set<String> forwardingDevices,
+			Map<String, Set<String>> acls, Map<String, Map<String, Set<String>>> vlans,
+			Map<String, String> applications) {
+		mixedExperiment = true;
+		mixedAclApplications.putAll(applications);
+		acl_node_names.addAll(applications.keySet());
+		addFWDElement(new ArrayList<String>(forwardingDevices));
+		for (String device : forwardingDevices) ((ForwardElement) elements.get(device)).enableMixedPriorityOrder();
+		addACLs(acls);
+		for (String link : links) {
+			checkpoint();
+			String[] p = link.split("\\s+");
+			addDirectedEdge(p[0], p[1], p[2], p[3]);
+		}
+		if (vlans != null) for (String device : forwardingDevices) {
+			if (vlans.containsKey(device)) ((ForwardElement) elements.get(device)).addVlanPorts(vlans.get(device));
+		}
+		initializeAPK();
+	}
+
+	public boolean isMixedExperiment() { return mixedExperiment; }
+
+	/** Counters are checking origins, not individual ECs. */
+	public FullInvariantReport verifyMixedInvariants(AppliedUpdate update) {
+		if (!mixedExperiment) throw new IllegalStateException("not an experiment-7 model");
+		return checker.verifyMixedInvariants(update);
+	}
 	
 	public Network(String network_name) {
 		name = network_name;
@@ -130,6 +162,7 @@ public class Network {
 		}
 	}
 	public boolean isACLNode(String name) {
+		if (mixedExperiment) return mixedAclApplications.containsKey(name);
 		return name.endsWith("_in") || name.endsWith("_out");
 	}
 	private void addDirectedEdge(String d1, String p1, String d2, String p2) {
@@ -252,6 +285,8 @@ public class Network {
 	}
 	
 	public Element getACLElement(String acl_node_name) {
+		if (mixedExperiment && mixedAclApplications.containsKey(acl_node_name))
+			return elements.get(mixedAclApplications.get(acl_node_name));
 		Element exact = elements.get(acl_node_name);
 		if (exact instanceof ACLElement) return exact;
 		String best = null;
@@ -415,6 +450,10 @@ public class Network {
 		if (!"+".equals(op) && !"-".equals(op)) {
 			throw new IllegalArgumentException("unsupported update operation: " + rule);
 		}
+		String ruleIdentity = rule.substring(2);
+		if (mixedExperiment && ("+".equals(op) == mixedRules.contains(ruleIdentity))) {
+			return new AppliedUpdate(device, new HashSet<Integer>(), 0, false);
+		}
 		if ("-".equals(op) && !standaloneInsertPhaseFinished) {
 			standaloneInsertPhaseFinished = true;
 			hardMergeAPBatch();
@@ -428,6 +467,9 @@ public class Network {
 		long identifyChangesNanos = element.getLastIdentifyChangesNanos();
 		boolean identifyChangesInvoked = element.wasLastIdentifyChangesInvoked();
 		Set<Integer> moved = element.updatePortPredicateMap(changes);
+		if (mixedExperiment) {
+			if ("+".equals(op)) mixedRules.add(ruleIdentity); else mixedRules.remove(ruleIdentity);
+		}
 		return new AppliedUpdate(elementName, moved == null
 				? new HashSet<Integer>() : new HashSet<Integer>(moved),
 				identifyChangesNanos, identifyChangesInvoked);

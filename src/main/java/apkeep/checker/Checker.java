@@ -321,6 +321,69 @@ public class Checker {
 		return new FullInvariantReport(checked, loopCount, blackholeCount);
 	}
 
+	/** Full checks exhaust branches; affected checks retain first-violation semantics. */
+	public FullInvariantReport verifyMixedInvariants(Network.AppliedUpdate update) {
+		boolean full = update == null;
+		if (!full && update.getMovedAtomicPredicates().isEmpty()) return new FullInvariantReport(0, 0, 0);
+		boolean acl = !full && net.getElement(update.getElementName()) instanceof ACLElement;
+		Set<String> roots = full ? net.getForwardingElementNames() : acl
+				? net.getAclApplicationNodes(update.getElementName()) : Collections.singleton(update.getElementName());
+		List<String> ordered = new ArrayList<String>(roots);
+		Collections.sort(ordered);
+		long loops = 0, holes = 0, checked = 0;
+		List<Integer> fwd = sortedIntegers(full || acl ? net.getForwardingAtomicPredicates()
+				: update.getMovedAtomicPredicates());
+		List<Integer> filters = acl ? sortedIntegers(update.getMovedAtomicPredicates())
+				: Collections.singletonList(BDDACLWrapper.BDDTrue);
+		for (String root : ordered) {
+			checkpoint();
+			checked++;
+			int violations = 0;
+			for (int ap : fwd) for (int filter : filters) {
+				if (full) violations |= exploreAll(new State(root, null, ap, filter));
+				else {
+					VerificationResult result = verifyOne(root, ap, filter);
+					if (result.isViolation()) return new FullInvariantReport(checked,
+							result.getType() == ViolationType.LOOP ? 1 : 0,
+							result.getType() == ViolationType.BLACKHOLE ? 1 : 0);
+				}
+			}
+			if ((violations & 1) != 0) loops++;
+			if ((violations & 2) != 0) holes++;
+		}
+		return new FullInvariantReport(checked, loops, holes);
+	}
+
+	/** Iterative DFS exhausts branches even after finding either violation kind. */
+	private int exploreAll(State root) {
+		Map<State, VisitState> colors = new HashMap<State, VisitState>();
+		Deque<ScanFrame> stack = new ArrayDeque<ScanFrame>();
+		stack.push(new ScanFrame(root, false));
+		int result = 0;
+		while (!stack.isEmpty()) {
+			checkpoint();
+			ScanFrame frame = stack.pop();
+			State state = frame.state;
+			if (frame.exit) { colors.put(state, VisitState.DONE); continue; }
+			if (!stateHasPackets(state)) continue;
+			VisitState color = colors.get(state);
+			if (color == VisitState.VISITING) { result |= 1; continue; }
+			if (color == VisitState.DONE) continue;
+			colors.put(state, VisitState.VISITING);
+			stack.push(new ScanFrame(state, true));
+			Expansion expansion = expand(state, true);
+			if (expansion.blackhole) result |= 2;
+			for (State next : expansion.next) stack.push(new ScanFrame(next, false));
+		}
+		return result;
+	}
+
+	private static final class ScanFrame {
+		final State state;
+		final boolean exit;
+		ScanFrame(State state, boolean exit) { this.state = state; this.exit = exit; }
+	}
+
 	/** Return all forwarding devices reached by any packet in the prefix. */
 	public Set<String> reachableDevices(long network, int prefixLength, String source) {
 		Element sourceElement = net.getElement(source);
@@ -405,7 +468,7 @@ public class Checker {
 		for (String port : ports) {
 			checkpoint();
 			if ("default".equals(port)) continue;
-			if (state.inputPort != null && state.inputPort.equals(port)) continue;
+			if (!net.isMixedExperiment() && state.inputPort != null && state.inputPort.equals(port)) continue;
 			if (element instanceof ACLElement && "deny".equals(port)) continue;
 			if ("self".equalsIgnoreCase(port)) continue;
 

@@ -302,6 +302,131 @@ To develop your own data plane verifier using APKeep, you might use or modify pa
 
 The other packages define some useful data structures during verification, please check the code for details.
 
+## Experiment 7: persistent-model mixed workload
+
+Build with `mvn package`, then run against an existing MINT experiment-7 run:
+
+```bash
+java -Xmx112g -jar target/apkeep-1.0.0.jar -experiment7 \
+  --input-run /Users/liml/IdeaProjects/mint/experiment-results/experiment-7/20260911-222345-294-c57c39d7
+```
+
+The runner reads `inputs/<dataset>/` relative to this directory, verifies the
+`mixed-prefix-1` manifests and SHA-256 values, and never regenerates or edits
+the inputs. Cloud-machine paths embedded in manifests are provenance only.
+The supplied run contains **I2 (`i2`), OTEG (`Oteglobe`), and INET (`inet`)**,
+each with 33,000 updates, **one warmup and one measured trial**. Each trial
+creates one model and reuses it throughout all six stages:
+
+| Stage | Update indices | Execution |
+|---|---|---|
+| Initialization | 1–10,000 | Serial batch, then full-space invariants |
+| Incremental 1 | 10,001–11,000 | Update and affected-space invariants |
+| Burst 1 | 11,001–21,000 | Serial batch, then full-space invariants |
+| Incremental 2 | 21,001–22,000 | Update and affected-space invariants |
+| Burst 2 | 22,001–32,000 | Serial batch, then full-space invariants |
+| Incremental 3 | 32,001–33,000 | Update and affected-space invariants |
+
+APKeep remains serial. Its EC/BDD update and merge mechanisms are retained;
+there is no predicate migration. Normal per-update soft merging is retained,
+with hard merging before each batch check. Checks precede soft merging for
+incremental updates, while moved-EC identities are still valid. There is no
+model restart or forced GC between stages. Violations do not stop replay, and
+no-op updates retain timing records but do not trigger traversal.
+
+### Options and validation
+
+Defaults are inherited from the source run. Supported overrides are:
+
+- `--datasets i2,Oteglobe,inet` (a comma-separated selection).
+- `--warmup-runs N`, `--measurement-runs N`.
+- `--timeout PT6H`, `--cancellation-grace PT1M` (ISO-8601 durations).
+- `--heap-limit-bytes N` (must be positive and strictly below JVM `-Xmx`).
+- `--output DIR` (parent of a newly created timestamped output directory).
+- `--validate-only` (no BDD model creation, warmup, or performance trial).
+
+The supplied run's heap threshold is 111669149696 bytes (104 GiB); `-Xmx112g`
+leaves headroom. A smaller JVM requires an explicit smaller threshold.
+Heap use is sampled every 100 ms, so the recorded peak is a sampled heap-use
+maximum, not process RSS. The timeout includes model creation and trial work.
+Timeout/memory failures skip the rest of that dataset; a failed warmup also
+skips measurement. Workers are cancelled and joined before continuing; an
+unresponsive worker aborts the entire run. SIGINT/SIGTERM requests cancellation
+and bounded cleanup; an uncatchable kill cannot guarantee final metadata.
+
+Validate the real inputs without performing the benchmark:
+
+```bash
+java -jar target/apkeep-1.0.0.jar -experiment7 \
+  --input-run /path/to/mint/experiment-results/experiment-7/RUN \
+  --validate-only
+```
+
+Run a single dataset with three measurements:
+
+```bash
+java -Xmx112g -jar target/apkeep-1.0.0.jar -experiment7 \
+  --input-run /path/to/mint/experiment-results/experiment-7/RUN \
+  --datasets i2 --measurement-runs 3
+```
+
+Small end-to-end fixtures and finite-packet reference checks are included in
+`mvn -Dtest=ExperimentSevenRunnerTest test`; they do not run the formal datasets.
+Stage sizes for such fixtures come from their manifests and run properties,
+not a second truncation of the prepared input.
+
+### Results and timing
+
+Results go to `RUN/apkeep/<timestamp-id>/` by default, without overwriting MINT,
+EPVerifier, or earlier APKeep results. All CSVs use `method=apkeep` and the MINT
+experiment-7 column order:
+
+- `updates.csv`: 3,000 measured incremental rows per successful formal trial.
+- `batches.csv`: initialization and two bursts (three rows per trial).
+- `stages.csv`: six stage summaries, with incremental mean, nearest-rank
+  P50/P90/P99, and first-100 statistics. Batch percentile fields are zero.
+- `trials.csv`: warmup/measurement status, errors, sampled heap peak, and
+  initialization/post-initialization totals.
+- `run.properties`: actual configuration, environment, input checksums,
+  checking roots, compatibility choices, and run status.
+
+`total_ns` is elapsed wall-clock time, not a sum of concurrent CPU times.
+`model_ns` includes EC maintenance/merging; `bdd_migration_ns` is zero.
+Model creation is included in initialization; input loading and validation
+are outside the measured trial. Warmups and failed trials publish no successful
+sample/stage summaries. Stage wall times include in-memory recording overhead;
+individual update times exclude CSV formatting. Initialization is reported
+separately from the other five stages.
+
+### Experiment-specific compatibility
+
+Only this entrypoint uses the following compatibility behavior:
+
+- Forwarding roots are devices appearing in the entire selected update
+  sequence, matching MINT. Topology-only devices terminate traversal. The
+  supplied inputs have 4, 5, and 1 forwarding roots respectively; all selected
+  updates are FIB insertions, not a balanced multi-rule workload.
+- Interface ACL bindings are connected into the logical topology, sharing
+  table state across application nodes. Definitions declare tables but do not
+  preload rules; bound empty tables deny. Already expanded binding chains are
+  not inserted twice.
+- Legal same-interface forwarding is not suppressed. FIB misses are blackholes;
+  ACL denial, `self` delivery, and exits without successors terminate normally.
+- Full checks exhaust every root's reachable branches, counting each root at
+  most once for each violation kind. Incremental counts use affected roots,
+  not individual ECs or differences between old/new violation sets. Incremental
+  checking stops at the first violation, matching the existing experiment-7
+  checks; subsequent updates still execute.
+- FIB affected rules are actually sorted by priority before restoring fallback
+  behavior (the legacy code sorts a temporary array). Duplicate insertions and
+  absent deletions are explicit no-ops; conflicting priorities are rejected.
+
+The adapter accepts prefix FIB and native-format ACL updates. NAT/masked-FIB
+input is rejected rather than silently omitted; the supplied experiment does
+not contain either. These compatibility changes do not replace APKeep's
+representation or introduce parallel update processing. Existing standalone
+and experiment-2 entrypoints retain their behavior.
+
 ## For Researchers
 
 To evaluate APKeep using the experiments from the NSDI paper, we provide [ExampleExp.java](src/main/java/apkeep/main/main.java).

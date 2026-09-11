@@ -20,6 +20,10 @@ public class ForwardElement extends Element {
 	
 	TrieTree trie;
 	Map<String, Set<String>> vlan_ports;
+	private boolean strictPriorityOrder;
+
+	/** Preserve legacy entrypoints; mixed replay must restore the highest-priority fallback. */
+	public void enableMixedPriorityOrder() { strictPriorityOrder = true; }
 
 	public ForwardElement(String ename) {
 		super(ename);
@@ -119,7 +123,8 @@ public class ForwardElement extends Element {
 		affected_rules.addAll(node.getDescendantRules());
 		affected_rules.addAll(node.getAncestorRules());
 		affected_rules.addAll(node.getRules());
-		Arrays.sort(affected_rules.toArray());
+		if (strictPriorityOrder) java.util.Collections.sort(affected_rules);
+		else Arrays.sort(affected_rules.toArray());
 		return affected_rules;
 	}
 	
