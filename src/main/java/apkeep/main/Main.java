@@ -5,6 +5,7 @@ import java.io.IOException;
 import apkeep.runner.StandaloneRunner;
 import apkeep.runner.ExperimentTwoRunner;
 import apkeep.runner.ExperimentSevenRunner;
+import apkeep.runner.ExperimentEightRunner;
 
 import org.jline.builtins.Completers;
 import org.jline.reader.LineReader;
@@ -17,7 +18,8 @@ public class Main {
 
 	public static void main(String[] args) throws IOException {
 		if (args.length > 0) {
-			int status = "-experiment7".equals(args[0]) ? ExperimentSevenRunner.run(args)
+			int status = "-experiment8".equals(args[0]) ? ExperimentEightRunner.run(args)
+					: "-experiment7".equals(args[0]) ? ExperimentSevenRunner.run(args)
 					: "-experiment2".equals(args[0])
 					? ExperimentTwoRunner.run(args) : StandaloneRunner.run(args);
 			if (status != 0) System.exit(status);

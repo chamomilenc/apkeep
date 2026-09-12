@@ -347,6 +347,10 @@ final class DatasetInput {
         return result.isEmpty() ? null : result;
     }
 
+    static List<ReachabilityQuery> loadReachability(Path path) throws IOException {
+        return readReachability(path);
+    }
+
     private static List<ReachabilityQuery> readReachability(Path path) throws IOException {
         if (!Files.isRegularFile(path)) throw new IOException("reachability workload is missing: " + path);
         List<ReachabilityQuery> result = new ArrayList<ReachabilityQuery>();

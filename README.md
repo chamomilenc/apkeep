@@ -427,6 +427,48 @@ not contain either. These compatibility changes do not replace APKeep's
 representation or introduce parallel update processing. Existing standalone
 and experiment-2 entrypoints retain their behavior.
 
+## Experiment 8: mixed reachability and incremental CDFs
+
+Experiment 8 replays a **MINT experiment-8** run. The six-stage 33,000-update
+prefix, methods, and datasets are the same as Experiment 7. Batch stages apply
+the storm and then time 1,000 sequential reachability queries from that run's
+`inputs/<dataset>/reachability.txt` (the same list after all three batches).
+Incremental stages still check invariants after each update.
+
+```bash
+java -Xmx112g -jar target/apkeep-1.0.0.jar -experiment8 \
+  --input-run /Users/liml/IdeaProjects/mint/experiment-results/experiment-8/RUN
+```
+
+| Stage | Update indices | Execution |
+|---|---|---|
+| Initialization | 1–10,000 | Serial batch, then 1,000 reachability queries |
+| Incremental 1 | 10,001–11,000 | Update and affected-space invariants |
+| Burst 1 | 11,001–21,000 | Serial batch, then the same 1,000 queries |
+| Incremental 2 | 21,001–22,000 | Update and affected-space invariants |
+| Burst 2 | 22,001–32,000 | Serial batch, then the same 1,000 queries |
+| Incremental 3 | 32,001–33,000 | Update and affected-space invariants |
+
+One warmup plus one measurement yields 3,000 query times and 3,000 incremental
+`verification_ns` values per dataset. Query setup is outside each per-query
+clock; the `(prefix, source)` burst cache is not used. Expected reachability
+bits are not the plot metric.
+
+Options match Experiment 7 (`--datasets`, `--warmup-runs`, `--measurement-runs`,
+`--timeout`, `--cancellation-grace`, `--heap-limit-bytes`, `--output`,
+`--validate-only`). The source `run.properties` must have `experiment=8`.
+
+Results go to `RUN/apkeep/<timestamp-id>/`. In addition to the Experiment 7
+CSVs (batch `verification_ns` is the sum of that stage's query times;
+`loops`/`blackholes`/`checked_spaces` are 0 on batch rows):
+
+- `reachability-queries.csv`: `dataset,method,trial,stage,query_index,verification_ns`
+- `incremental-checks.csv`: `dataset,method,trial,stage,update_index,verification_ns`
+
+Warmup trials write status in `trials.csv` only; both CDF files omit warmup
+rows. `mvn -Dtest=ExperimentEightRunnerTest test` covers a 2/2/2 fixture with
+two queries.
+
 ## For Researchers
 
 To evaluate APKeep using the experiments from the NSDI paper, we provide [ExampleExp.java](src/main/java/apkeep/main/main.java).

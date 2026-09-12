@@ -1,6 +1,8 @@
 package apkeep.runner;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -29,6 +31,18 @@ final class ReachabilityVerifier {
             if (actual == query.expected) matches++;
         }
         return new ReachabilityReport(reachable, matches, queries.size() - matches);
+    }
+
+    /** Sequential per-query times. Does not use the prefix/source cache. */
+    List<Long> timeQueries(List<ReachabilityQuery> queries) {
+        List<Long> times = new ArrayList<Long>(queries.size());
+        for (ReachabilityQuery query : queries) {
+            long started = System.nanoTime();
+            Set<String> destinations = network.reachableDevices(query.network, query.prefixLength, query.source);
+            destinations.contains(query.destination);
+            times.add(System.nanoTime() - started);
+        }
+        return times;
     }
 
     void clear() {

@@ -21,9 +21,14 @@ final class MixedInput {
     final List<String> links = new ArrayList<>();
     final Map<String, String> applications = new TreeMap<>();
     final Map<String, Set<String>> acls = new TreeMap<>();
+    final List<ReachabilityQuery> queries;
     long duplicateInserts, invalidDeletes;
 
     MixedInput(Path directory, String name, Properties config) throws Exception {
+        this(directory, name, config, false);
+    }
+
+    MixedInput(Path directory, String name, Properties config, boolean requireReachability) throws Exception {
         directory = directory.toRealPath();
         manifest = properties(directory.resolve("manifest.properties"));
         require("mixed-prefix-1".equals(manifest.getProperty("schema")), "unknown input schema");
@@ -40,8 +45,8 @@ final class MixedInput {
         try (Stream<Path> files = Files.walk(directory)) {
             for (Path file : (Iterable<Path>) files.filter(Files::isRegularFile)::iterator) {
                 String relative = directory.relativize(file).toString().replace(File.separatorChar, '/');
-                if (!relative.equals("manifest.properties"))
-                    require(manifest.containsKey("sha256." + relative), "unverified input file: " + relative);
+                if (relative.equals("manifest.properties") || relative.equals("reachability.txt")) continue;
+                require(manifest.containsKey("sha256." + relative), "unverified input file: " + relative);
             }
         }
         data = DatasetInput.load(directory, false, name);
@@ -111,6 +116,22 @@ final class MixedInput {
                     "source mapping mismatch at update " + (j + 1));
             sourceLines.add(physical);
             previousLine = physical;
+        }
+        Path reachability = directory.resolve("reachability.txt");
+        if (requireReachability) {
+            require(Files.isRegularFile(reachability), "reachability workload is missing: " + reachability);
+            queries = DatasetInput.loadReachability(reachability);
+            int expected = Integer.parseInt(config.getProperty("mixed.reachability.query.count", "1000"));
+            require(expected > 0 && queries.size() == expected,
+                    "reachability query count mismatch: required " + expected + ", found " + queries.size());
+            for (ReachabilityQuery query : queries) {
+                require(forwarding.contains(query.source),
+                        "unknown reachability source device: " + query.source);
+                require(forwarding.contains(query.destination),
+                        "unknown reachability destination device: " + query.destination);
+            }
+        } else {
+            queries = Collections.emptyList();
         }
         buildTopology();
     }
