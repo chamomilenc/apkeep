@@ -124,10 +124,18 @@ final class MixedInput {
             int expected = Integer.parseInt(config.getProperty("mixed.reachability.query.count", "1000"));
             require(expected > 0 && queries.size() == expected,
                     "reachability query count mismatch: required " + expected + ", found " + queries.size());
+            Set<String> destinations = new TreeSet<>(forwarding);
+            for (String link : data.topology) {
+                String[] hop = link.split("\\s+");
+                if (hop.length == 4) {
+                    destinations.add(hop[0]);
+                    destinations.add(hop[2]);
+                }
+            }
             for (ReachabilityQuery query : queries) {
                 require(forwarding.contains(query.source),
                         "unknown reachability source device: " + query.source);
-                require(forwarding.contains(query.destination),
+                require(destinations.contains(query.destination),
                         "unknown reachability destination device: " + query.destination);
             }
         } else {

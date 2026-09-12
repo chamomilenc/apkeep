@@ -401,7 +401,14 @@ public class Checker {
 			State state = pending.removeFirst();
 			if (!visited.add(state) || !stateHasPackets(state)) continue;
 			Element direct = net.getElement(state.node);
-			if (direct instanceof ForwardElement) reachable.add(state.node);
+			if (direct instanceof ForwardElement) {
+				reachable.add(state.node);
+			} else if (direct == null && !net.isACLNode(state.node)) {
+				// Mixed models only materialize ForwardElements for FIB update devices.
+				// Topology-only next hops are still valid Experiment 8 destinations.
+				reachable.add(state.node);
+				continue;
+			}
 			Expansion expansion = expand(state, false);
 			for (State next : expansion.next) pending.addLast(next);
 		}
