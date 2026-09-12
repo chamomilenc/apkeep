@@ -114,6 +114,33 @@ class StandaloneRunnerTest {
     }
 
     @Test
+    void incrementalHonorsWarmupAndMeasurementCounts() throws Exception {
+        Path dataset = createDataset();
+        Path output = temporaryDirectory.resolve("one-measurement");
+        DatasetInput input = DatasetInput.load(dataset, false);
+        assertEquals(0, StandaloneRunner.execute(input, RunMode.INCREMENTAL_INVARIANTS, output, 0, 1));
+
+        List<String> trials = Files.readAllLines(output.resolve("trials.csv"), StandardCharsets.UTF_8);
+        assertEquals(2, trials.size());
+        List<String> samples = readGzip(output.resolve("incremental-samples.csv.gz"));
+        assertEquals(3, samples.size());
+        Properties properties = new Properties();
+        try (java.io.InputStream stream = Files.newInputStream(output.resolve("run.properties"))) {
+            properties.load(stream);
+        }
+        assertEquals("0", properties.getProperty("warmup.runs"));
+        assertEquals("1", properties.getProperty("measurement.runs"));
+    }
+
+    @Test
+    void rejectsNonPositiveMeasurementRuns() {
+        assertEquals(2, StandaloneRunner.run(new String[] {
+                "-incr", temporaryDirectory.resolve("missing").toString(),
+                "--warmup-runs", "0", "--measurement-runs", "0"
+        }));
+    }
+
+    @Test
     void burstRecordsOnlyTrialLevelIdentifyTiming() throws Exception {
         Path dataset = createDataset();
         Path output = temporaryDirectory.resolve("burst-invariant-results");

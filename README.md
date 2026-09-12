@@ -38,6 +38,10 @@ each update:
 ```bash
 java -jar target/apkeep-1.0.0.jar \
   -incr /absolute/path/to/dataset
+
+java -jar target/apkeep-1.0.0.jar \
+  -incr /absolute/path/to/dataset \
+  --warmup-runs 0 --measurement-runs 1
 ```
 
 Burst mode applies the complete update stream without intermediate checking,
@@ -57,12 +61,13 @@ directory. Otherwise results are written below
 `results/<dataset>/<timestamp>-<mode>/`. A non-empty output directory is never
 overwritten.
 
-Each command performs one complete warmup followed by three measured trials.
-Every trial starts with a fresh empty APKeep model and uses the same input that
-was loaded into memory before the warmup. A failed warmup aborts the command. A
-failed measured trial is recorded, and the remaining measured trials still run
-from fresh models. The process exits non-zero if a warmup or measured trial
-fails.
+By default each command performs one complete warmup followed by three measured
+trials. Override with `--warmup-runs N` (N >= 0) and `--measurement-runs N`
+(N >= 1). Every trial starts with a fresh empty APKeep model and uses the same
+input that was loaded into memory before the first trial. A failed warmup
+aborts the command. A failed measured trial is recorded, and the remaining
+measured trials still run from fresh models. The process exits non-zero if a
+warmup or measured trial fails.
 
 ### batched MINT Experiment 2
 

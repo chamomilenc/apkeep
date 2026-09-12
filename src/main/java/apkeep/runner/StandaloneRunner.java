@@ -18,8 +18,8 @@ import apkeep.checker.ViolationType;
 import apkeep.core.Network;
 
 public final class StandaloneRunner {
-    private static final int WARMUP_RUNS = 1;
-    private static final int MEASUREMENT_RUNS = 3;
+    static final int DEFAULT_WARMUP_RUNS = 1;
+    static final int DEFAULT_MEASUREMENT_RUNS = 3;
 
     private StandaloneRunner() {
     }
@@ -29,7 +29,7 @@ public final class StandaloneRunner {
             Arguments parsed = Arguments.parse(args);
             DatasetInput input = DatasetInput.load(parsed.dataset, parsed.mode.reachability());
             Path output = parsed.output != null ? parsed.output : defaultOutput(input, parsed.mode);
-            return execute(input, parsed.mode, output);
+            return execute(input, parsed.mode, output, parsed.warmupRuns, parsed.measurementRuns);
         } catch (IllegalArgumentException e) {
             System.err.println("error: " + e.getMessage());
             printUsage();
@@ -42,18 +42,28 @@ public final class StandaloneRunner {
     }
 
     static int execute(DatasetInput input, RunMode mode, Path output) throws IOException {
+        return execute(input, mode, output, DEFAULT_WARMUP_RUNS, DEFAULT_MEASUREMENT_RUNS);
+    }
+
+    static int execute(DatasetInput input, RunMode mode, Path output,
+            int warmupRuns, int measurementRuns) throws IOException {
+        if (warmupRuns < 0 || measurementRuns <= 0) {
+            throw new IllegalArgumentException("invalid trial count");
+        }
         Instant started = Instant.now();
         String inputHash = inputHash(input);
         TrialResult.Counts counts = TrialResult.Counts.from(input.updates);
         boolean failed = false;
         try (ResultWriter writer = new ResultWriter(output,
-                input.directory.getFileName().toString(), mode)) {
+                input.directory.getFileName().toString(), mode, warmupRuns, measurementRuns)) {
             writer.writeRunProperties(input, "RUNNING", inputHash, started, null);
             System.out.println("APKeep standalone: dataset=" + input.directory.getFileName()
                     + " mode=" + mode + " updates=" + input.updates.size()
-                    + " queries=" + input.reachability.size());
-            for (int warmup = 1; warmup <= WARMUP_RUNS; warmup++) {
-                System.out.println("Warmup " + warmup + "/" + WARMUP_RUNS);
+                    + " queries=" + input.reachability.size()
+                    + " warmup_runs=" + warmupRuns
+                    + " measurement_runs=" + measurementRuns);
+            for (int warmup = 1; warmup <= warmupRuns; warmup++) {
+                System.out.println("Warmup " + warmup + "/" + warmupRuns);
                 try {
                     runTrial(input, mode, 0, counts);
                 } catch (Throwable failure) {
@@ -66,8 +76,8 @@ public final class StandaloneRunner {
                     return 1;
                 }
             }
-            for (int trial = 1; trial <= MEASUREMENT_RUNS; trial++) {
-                System.out.println("Measurement trial " + trial + "/" + MEASUREMENT_RUNS);
+            for (int trial = 1; trial <= measurementRuns; trial++) {
+                System.out.println("Measurement trial " + trial + "/" + measurementRuns);
                 TrialResult result;
                 try {
                     result = runTrial(input, mode, trial, counts);
@@ -241,8 +251,8 @@ public final class StandaloneRunner {
 
     public static void printUsage() {
         System.err.println("Usage:");
-        System.err.println("  java -jar apkeep-1.0.0.jar -incr <dataset-directory> [--output <directory>]");
-        System.err.println("  java -jar apkeep-1.0.0.jar -brust|-burst <dataset-directory> --verify invariants|reachability [--output <directory>]");
+        System.err.println("  java -jar apkeep-1.0.0.jar -incr <dataset-directory> [--output <directory>] [--warmup-runs N] [--measurement-runs N]");
+        System.err.println("  java -jar apkeep-1.0.0.jar -brust|-burst <dataset-directory> --verify invariants|reachability [--output <directory>] [--warmup-runs N] [--measurement-runs N]");
         ExperimentTwoRunner.printUsage();
     }
 
@@ -250,11 +260,15 @@ public final class StandaloneRunner {
         final RunMode mode;
         final Path dataset;
         final Path output;
+        final int warmupRuns;
+        final int measurementRuns;
 
-        Arguments(RunMode mode, Path dataset, Path output) {
+        Arguments(RunMode mode, Path dataset, Path output, int warmupRuns, int measurementRuns) {
             this.mode = mode;
             this.dataset = dataset;
             this.output = output;
+            this.warmupRuns = warmupRuns;
+            this.measurementRuns = measurementRuns;
         }
 
         static Arguments parse(String[] args) {
@@ -265,28 +279,48 @@ public final class StandaloneRunner {
             Path dataset = Paths.get(args[1]);
             Path output = null;
             String verification = null;
+            int warmupRuns = DEFAULT_WARMUP_RUNS;
+            int measurementRuns = DEFAULT_MEASUREMENT_RUNS;
             for (int index = 2; index < args.length; index++) {
                 String option = args[index];
                 if ("--output".equals(option) && index + 1 < args.length) {
                     output = Paths.get(args[++index]);
                 } else if ("--verify".equals(option) && index + 1 < args.length) {
                     verification = args[++index];
+                } else if ("--warmup-runs".equals(option) && index + 1 < args.length) {
+                    warmupRuns = parseCount(option, args[++index]);
+                } else if ("--measurement-runs".equals(option) && index + 1 < args.length) {
+                    measurementRuns = parseCount(option, args[++index]);
                 } else {
                     throw new IllegalArgumentException("unknown or incomplete option: " + option);
                 }
             }
+            if (warmupRuns < 0 || measurementRuns <= 0) {
+                throw new IllegalArgumentException("invalid trial count");
+            }
             if (incremental) {
                 if (verification != null) throw new IllegalArgumentException("--verify is only valid for Burst");
-                return new Arguments(RunMode.INCREMENTAL_INVARIANTS, dataset, output);
+                return new Arguments(RunMode.INCREMENTAL_INVARIANTS, dataset, output,
+                        warmupRuns, measurementRuns);
             }
             if (verification == null) throw new IllegalArgumentException("Burst requires --verify invariants|reachability");
             if ("invariants".equals(verification)) {
-                return new Arguments(RunMode.BURST_INVARIANTS, dataset, output);
+                return new Arguments(RunMode.BURST_INVARIANTS, dataset, output,
+                        warmupRuns, measurementRuns);
             }
             if ("reachability".equals(verification)) {
-                return new Arguments(RunMode.BURST_REACHABILITY, dataset, output);
+                return new Arguments(RunMode.BURST_REACHABILITY, dataset, output,
+                        warmupRuns, measurementRuns);
             }
             throw new IllegalArgumentException("unknown Burst verification: " + verification);
+        }
+
+        private static int parseCount(String option, String value) {
+            try {
+                return Integer.parseInt(value);
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException(option + " must be an integer: " + value);
+            }
         }
     }
 }

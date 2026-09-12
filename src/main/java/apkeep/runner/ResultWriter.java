@@ -24,14 +24,23 @@ final class ResultWriter implements Closeable {
     private final Path outputDirectory;
     private final String dataset;
     private final RunMode mode;
+    private final int warmupRuns;
+    private final int measurementRuns;
     private final BufferedWriter trialWriter;
     private final BufferedWriter sampleWriter;
     private final List<TrialResult> results = new ArrayList<TrialResult>();
 
     ResultWriter(Path outputDirectory, String dataset, RunMode mode) throws IOException {
+        this(outputDirectory, dataset, mode, 1, 3);
+    }
+
+    ResultWriter(Path outputDirectory, String dataset, RunMode mode,
+            int warmupRuns, int measurementRuns) throws IOException {
         this.outputDirectory = outputDirectory;
         this.dataset = dataset;
         this.mode = mode;
+        this.warmupRuns = warmupRuns;
+        this.measurementRuns = measurementRuns;
         prepareDirectory(outputDirectory);
         trialWriter = Files.newBufferedWriter(outputDirectory.resolve("trials.csv"),
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
@@ -140,8 +149,8 @@ final class ResultWriter implements Closeable {
         properties.setProperty("method", "apkeep");
         properties.setProperty("rule.profile", "FULL");
         properties.setProperty("mode", mode.name());
-        properties.setProperty("warmup.runs", "1");
-        properties.setProperty("measurement.runs", "3");
+        properties.setProperty("warmup.runs", Integer.toString(warmupRuns));
+        properties.setProperty("measurement.runs", Integer.toString(measurementRuns));
         properties.setProperty("updates", Integer.toString(input.updates.size()));
         properties.setProperty("queries", Integer.toString(input.reachability.size()));
         properties.setProperty("input.sha256", inputHash);
