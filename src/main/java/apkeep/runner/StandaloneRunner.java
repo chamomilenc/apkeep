@@ -92,10 +92,9 @@ public final class StandaloneRunner {
 
     static TrialResult runTrial(DatasetInput input, RunMode mode, int trial,
             TrialResult.Counts counts) throws Exception {
-        long[] stepModelTimes = mode.incremental() ? new long[input.updates.size()] : null;
-        long[] stepVerificationTimes = mode.incremental() ? new long[input.updates.size()] : null;
-        long[] stepIdentifyChangesTimes = mode.incremental() ? new long[input.updates.size()] : null;
-        long[] stepTotalTimes = mode.incremental() ? new long[input.updates.size()] : null;
+        List<StepTiming> steps = mode.incremental()
+                ? new ArrayList<StepTiming>(input.updates.size())
+                : java.util.Collections.<StepTiming>emptyList();
         stableGc();
         long heapBefore = usedHeap();
         Network network = null;
@@ -117,31 +116,41 @@ public final class StandaloneRunner {
             for (int index = 0; index < input.updates.size(); index++) {
                 checkInterrupted();
                 String update = input.updates.get(index);
-                long stepStarted = System.nanoTime();
-                start = System.nanoTime();
-                Network.AppliedUpdate effect = network.applyUpdateModel(update);
-                long stepModel = System.nanoTime() - start;
-                long stepIdentifyChanges = effect.getIdentifyChangesNanos();
-                identifyChangesNanos += stepIdentifyChanges;
-                long stepVerification = 0;
-                if (mode.incremental()) {
+                try {
+                    long stepStarted = System.nanoTime();
                     start = System.nanoTime();
-                    VerificationResult result = network.verifyUpdate(effect);
-                    stepVerification = System.nanoTime() - start;
-                    verificationNanos += stepVerification;
-                    checked++;
-                    if (result.getType() == ViolationType.LOOP) loops++;
-                    else if (result.getType() == ViolationType.BLACKHOLE) blackholes++;
-                }
-                start = System.nanoTime();
-                network.finishStandaloneUpdate();
-                stepModel += System.nanoTime() - start;
-                modelNanos += stepModel;
-                if (mode.incremental()) {
-                    stepModelTimes[index] = stepModel;
-                    stepVerificationTimes[index] = stepVerification;
-                    stepIdentifyChangesTimes[index] = stepIdentifyChanges;
-                    stepTotalTimes[index] = System.nanoTime() - stepStarted;
+                    Network.AppliedUpdate effect = network.applyUpdateModel(update);
+                    long stepModel = System.nanoTime() - start;
+                    long stepIdentifyChanges = effect.getIdentifyChangesNanos();
+                    long stepVerification = 0;
+                    VerificationResult result = null;
+                    if (mode.incremental()) {
+                        start = System.nanoTime();
+                        result = network.verifyUpdate(effect);
+                        stepVerification = System.nanoTime() - start;
+                    }
+                    start = System.nanoTime();
+                    network.finishStandaloneUpdate();
+                    stepModel += System.nanoTime() - start;
+                    modelNanos += stepModel;
+                    identifyChangesNanos += stepIdentifyChanges;
+                    if (mode.incremental()) {
+                        verificationNanos += stepVerification;
+                        checked++;
+                        if (result.getType() == ViolationType.LOOP) loops++;
+                        else if (result.getType() == ViolationType.BLACKHOLE) blackholes++;
+                        steps.add(new StepTiming(index + 1, input.sourceUpdateIndices.get(index),
+                                stepModel, stepVerification, stepIdentifyChanges,
+                                System.nanoTime() - stepStarted));
+                    }
+                } catch (InterruptedException interrupted) {
+                    throw interrupted;
+                } catch (Exception failure) {
+                    System.err.println("skipping update " + (index + 1) + "/"
+                            + input.updates.size() + ": " + update + " ("
+                            + failure.getClass().getName()
+                            + (failure.getMessage() == null ? "" : ": " + failure.getMessage())
+                            + ")");
                 }
             }
             checkInterrupted();
@@ -174,17 +183,6 @@ public final class StandaloneRunner {
                 verificationNanos = System.nanoTime() - start;
             }
             network.clearVerificationState();
-            List<StepTiming> steps;
-            if (mode.incremental()) {
-                steps = new ArrayList<StepTiming>(input.updates.size());
-                for (int index = 0; index < input.updates.size(); index++) {
-                    steps.add(new StepTiming(index + 1, input.sourceUpdateIndices.get(index),
-                            stepModelTimes[index], stepVerificationTimes[index],
-                            stepIdentifyChangesTimes[index], stepTotalTimes[index]));
-                }
-            } else {
-                steps = java.util.Collections.emptyList();
-            }
             return TrialResult.success(trial, counts, input.reachability.size(),
                     heapBefore, heapAfter, modelNanos, modelFinalizeNanos,
                     verificationNanos, identifyChangesNanos, checked, loops, blackholes, reachable,

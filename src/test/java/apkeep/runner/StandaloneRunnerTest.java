@@ -79,6 +79,41 @@ class StandaloneRunnerTest {
     }
 
     @Test
+    void incrementalSkipsFailedUpdateAndExcludesItFromAverages() throws Exception {
+        Path dataset = Files.createDirectory(temporaryDirectory.resolve("skip-failed"));
+        Files.write(dataset.resolve("parameters.json"), (
+                "{\"BDD_TABLE_SIZE\":100000,\"GC_INTERVAL\":1000,"
+                + "\"PRINT_RESULT_INTERVAL\":1000,\"WRITE_RESULT_INTERVAL\":1}"
+                ).getBytes(StandardCharsets.UTF_8));
+        Files.write(dataset.resolve("topo.txt"), "r1 p12 r2 p21\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(dataset.resolve("updates"), (
+                "+ fwd r1 167772160 24 p12 24\n"
+                + "+ fwd missing 184549376 24 p12 24\n"
+                + "+ fwd r2 167772160 24 self 24\n").getBytes(StandardCharsets.UTF_8));
+        Path output = temporaryDirectory.resolve("skip-failed-results");
+        DatasetInput input = DatasetInput.load(dataset, false);
+        assertEquals(0, StandaloneRunner.execute(input, RunMode.INCREMENTAL_INVARIANTS, output));
+
+        List<String> samples = readGzip(output.resolve("incremental-samples.csv.gz"));
+        assertEquals(7, samples.size());
+        String[] sampleHeader = samples.get(0).split(",", -1);
+        int trialOneSamples = 0;
+        for (int index = 1; index < samples.size(); index++) {
+            String[] sample = samples.get(index).split(",", -1);
+            int step = Integer.parseInt(field(sampleHeader, sample, "step"));
+            assertTrue(step == 1 || step == 3);
+            if ("1".equals(field(sampleHeader, sample, "trial"))) trialOneSamples++;
+        }
+        assertEquals(2, trialOneSamples);
+
+        List<String> summary = Files.readAllLines(output.resolve("summary.csv"), StandardCharsets.UTF_8);
+        assertTrue(summary.stream().anyMatch(row -> row.contains(",update_model_ns,ns,6,")));
+        assertTrue(summary.stream().anyMatch(row -> row.contains(",update_verification_ns,ns,6,")));
+        assertTrue(summary.stream().anyMatch(row -> row.contains(",update_identify_changes_ns,ns,6,")));
+        assertTrue(summary.stream().noneMatch(row -> row.contains(",update_model_ns,ns,9,")));
+    }
+
+    @Test
     void burstRecordsOnlyTrialLevelIdentifyTiming() throws Exception {
         Path dataset = createDataset();
         Path output = temporaryDirectory.resolve("burst-invariant-results");
